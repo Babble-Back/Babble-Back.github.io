@@ -27,6 +27,7 @@ interface PushSubscriptionRow {
 interface PushNotificationContent {
   title: string;
   body: string;
+  url: string;
 }
 
 function jsonResponse(body: unknown, status = 200) {
@@ -76,17 +77,20 @@ function formatNotificationUsername(username: unknown) {
 function buildNotificationContent(
   notificationType: PushNotificationType,
   senderUsername: string,
+  senderUserId: string,
 ): PushNotificationContent {
   if (notificationType === 'friend_request') {
     return {
       title: `${senderUsername} sent you a friend request`,
       body: 'Open BackTalk to accept or ignore it.',
+      url: './?view=friends',
     };
   }
 
   return {
     title: `It is your turn with ${senderUsername}`,
     body: 'Open BackTalk to listen and record your response.',
+    url: `./?view=thread&friend=${encodeURIComponent(senderUserId)}`,
   };
 }
 
@@ -171,7 +175,7 @@ Deno.serve(async (request) => {
     }
 
     const senderUsername = formatNotificationUsername(senderProfile?.username);
-    const notification = buildNotificationContent(notificationType, senderUsername);
+    const notification = buildNotificationContent(notificationType, senderUsername, user.id);
     console.info('send-push-notification: built notification content.', {
       notificationType,
       senderUsername,

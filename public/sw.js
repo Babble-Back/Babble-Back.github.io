@@ -11,6 +11,18 @@ function getScopedUrl(path) {
   return new URL(path, self.registration.scope).toString();
 }
 
+function normalizeNotificationUrl(url) {
+  if (typeof url !== 'string' || !url) {
+    return getScopedUrl('./');
+  }
+
+  try {
+    return new URL(url, self.registration.scope).toString();
+  } catch {
+    return getScopedUrl('./');
+  }
+}
+
 self.addEventListener('install', (event) => {
   event.waitUntil(
     Promise.all([
@@ -98,13 +110,15 @@ self.addEventListener('push', (event) => {
     }
   }
 
+  const normalizedUrl = normalizeNotificationUrl(data.url);
+
   event.waitUntil(
     self.registration.showNotification(data.title, {
       body: data.body,
       icon: data.icon || defaultIcon,
       badge: data.badge || defaultIcon,
       data: {
-        url: data.url || defaultUrl,
+        url: normalizedUrl || defaultUrl,
       },
     }),
   );

@@ -31,6 +31,45 @@ import { CoinDisplay, ResourceProvider } from './features/resources/ResourceProv
 
 type View = 'home' | 'thread' | 'friends';
 type AppPath = '/' | '/campaign';
+interface AppRoute {
+  appPath: AppPath;
+  view: View;
+  friendId: string | null;
+}
+
+const DEFAULT_SIGNED_IN_VIEW: View = 'home';
+
+function createHomeRoute(): AppRoute {
+  return {
+    appPath: '/',
+    view: 'home',
+    friendId: null,
+  };
+}
+
+function createFriendsRoute(): AppRoute {
+  return {
+    appPath: '/',
+    view: 'friends',
+    friendId: null,
+  };
+}
+
+function createThreadRoute(friendId: string): AppRoute {
+  return {
+    appPath: '/',
+    view: 'thread',
+    friendId,
+  };
+}
+
+function createCampaignRoute(): AppRoute {
+  return {
+    appPath: '/campaign',
+    view: DEFAULT_SIGNED_IN_VIEW,
+    friendId: null,
+  };
+}
 
 function getNormalizedBasePath() {
   const configuredBasePath = import.meta.env.BASE_URL ?? '/';
@@ -53,9 +92,7 @@ interface ThreadSummary {
   roundCount: number;
 }
 
-const DEFAULT_SIGNED_IN_VIEW: View = 'home';
-
-function getAppPath(): AppPath {
+function getAppRelativePath() {
   if (typeof window === 'undefined') {
     return '/';
   }
@@ -69,15 +106,61 @@ function getAppPath(): AppPath {
   return appRelativePath === '/campaign' ? '/campaign' : '/';
 }
 
-function updateAppPath(path: AppPath, options?: { replace?: boolean }) {
+function getAppRoute(): AppRoute {
+  if (typeof window === 'undefined') {
+    return createHomeRoute();
+  }
+
+  const appRelativePath = getAppRelativePath();
+  if (appRelativePath === '/campaign') {
+    return createCampaignRoute();
+  }
+
+  const searchParams = new URLSearchParams(window.location.search);
+  const requestedView = searchParams.get('view');
+
+  if (requestedView === 'friends') {
+    return createFriendsRoute();
+  }
+
+  if (requestedView === 'thread') {
+    const friendId = searchParams.get('friend')?.trim() || null;
+    if (friendId) {
+      return createThreadRoute(friendId);
+    }
+  }
+
+  return createHomeRoute();
+}
+
+function buildAppRouteUrl(route: AppRoute) {
+  const basePath = getNormalizedBasePath();
+  const pathname = `${basePath}${route.appPath === '/' ? '' : route.appPath}` || '/';
+
+  if (route.appPath === '/campaign') {
+    return pathname;
+  }
+
+  const searchParams = new URLSearchParams();
+  if (route.view === 'friends') {
+    searchParams.set('view', 'friends');
+  } else if (route.view === 'thread' && route.friendId) {
+    searchParams.set('view', 'thread');
+    searchParams.set('friend', route.friendId);
+  }
+
+  const search = searchParams.toString();
+  return search ? `${pathname}?${search}` : pathname;
+}
+
+function updateAppRoute(route: AppRoute, options?: { replace?: boolean }) {
   if (typeof window === 'undefined') {
     return;
   }
 
-  const basePath = getNormalizedBasePath();
-  const destination = `${basePath}${path === '/' ? '' : path}` || '/';
+  const destination = buildAppRouteUrl(route);
 
-  if (window.location.pathname === destination) {
+  if (`${window.location.pathname}${window.location.search}` === destination) {
     return;
   }
 
@@ -286,15 +369,15 @@ function WaitingThreadPanel({
 }
 
 function App() {
-  const [view, setView] = useState<View>(DEFAULT_SIGNED_IN_VIEW);
-  const [appPath, setAppPath] = useState<AppPath>(() => getAppPath());
+  const [view, setView] = useState<View>(() => getAppRoute().view);
+  const [appPath, setAppPath] = useState<AppPath>(() => getAppRoute().appPath);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isComposingNextRound, setIsComposingNextRound] = useState(false);
   const [profile, setProfile] = useState<AppProfile | null>(null);
   const [friends, setFriends] = useState<Friend[]>([]);
   const [requests, setRequests] = useState<FriendRequest[]>([]);
   const [rounds, setRounds] = useState<Round[]>([]);
-  const [selectedFriendId, setSelectedFriendId] = useState<string | null>(null);
+  const [selectedFriendId, setSelectedFriendId] = useState<string | null>(() => getAppRoute().friendId);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
   const [isLoadingData, setIsLoadingData] = useState(false);
   const [hasLoadedInitialData, setHasLoadedInitialData] = useState(false);
@@ -309,14 +392,51 @@ function App() {
   const showSecureContextWarning =
     typeof window !== 'undefined' && !window.isSecureContext;
 
+  const applyRouteState = useCallback(
+    (
+      route: AppRoute,
+      options?: {
+        closeMenu?: boolean;
+        resetCompose?: boolean;
+      },
+    ) => {
+      setAppPath(route.appPath);
+      setView(route.view);
+      setSelectedFriendId(route.friendId);
+
+      if (options?.closeMenu !== false) {
+        setIsMenuOpen(false);
+      }
+
+      if (options?.resetCompose !== false) {
+        setIsComposingNextRound(false);
+      }
+    },
+    [],
+  );
+
+  const navigateToRoute = useCallback(
+    (
+      route: AppRoute,
+      options?: {
+        closeMenu?: boolean;
+        replace?: boolean;
+        resetCompose?: boolean;
+      },
+    ) => {
+      updateAppRoute(route, { replace: options?.replace });
+      applyRouteState(route, options);
+    },
+    [applyRouteState],
+  );
+
   useEffect(() => {
     if (typeof window === 'undefined') {
       return;
     }
 
     const handlePopState = () => {
-      setAppPath(getAppPath());
-      setIsMenuOpen(false);
+      applyRouteState(getAppRoute());
     };
 
     window.addEventListener('popstate', handlePopState);
@@ -324,7 +444,7 @@ function App() {
     return () => {
       window.removeEventListener('popstate', handlePopState);
     };
-  }, []);
+  }, [applyRouteState]);
 
   useEffect(() => {
     if (supabaseConfigError) {
@@ -486,10 +606,6 @@ function App() {
       setFriends([]);
       setRequests([]);
       setRounds([]);
-      setSelectedFriendId(null);
-      setView(DEFAULT_SIGNED_IN_VIEW);
-      updateAppPath('/', { replace: true });
-      setAppPath('/');
       setIsMenuOpen(false);
       setIsComposingNextRound(false);
       setCampaignBannerImage(null);
@@ -502,14 +618,12 @@ function App() {
     initialLoadRequestIdRef.current += 1;
     const initialLoadRequestId = initialLoadRequestIdRef.current;
 
-    setView(DEFAULT_SIGNED_IN_VIEW);
-    setIsMenuOpen(false);
-    setIsComposingNextRound(false);
+    applyRouteState(getAppRoute());
     setCampaignBannerImage(null);
     setHasResolvedInitialCampaignBanner(false);
     setHasLoadedInitialData(false);
     void refreshAppData({ initialLoadRequestId, resolveInitialLoad: true });
-  }, [currentUserId, refreshAppData]);
+  }, [applyRouteState, currentUserId, refreshAppData]);
 
   useEffect(() => {
     if (!currentUserId) {
@@ -554,19 +668,21 @@ function App() {
   }, [currentUserId]);
 
   useEffect(() => {
-    if (!selectedFriendId) {
+    if (
+      appPath !== '/' ||
+      view !== 'thread' ||
+      !selectedFriendId ||
+      !hasLoadedInitialData
+    ) {
       return;
     }
 
     if (!friends.some((friend) => friend.id === selectedFriendId)) {
-      setSelectedFriendId(null);
-      setIsComposingNextRound(false);
-
-      if (view === 'thread') {
-        setView(DEFAULT_SIGNED_IN_VIEW);
-      }
+      const homeRoute = createHomeRoute();
+      updateAppRoute(homeRoute, { replace: true });
+      applyRouteState(homeRoute);
     }
-  }, [friends, selectedFriendId, view]);
+  }, [appPath, applyRouteState, friends, hasLoadedInitialData, selectedFriendId, view]);
 
   const threadSummaries = useMemo(() => {
     if (!currentUserId) {
@@ -627,54 +743,30 @@ function App() {
   );
 
   const handleSelectFriend = (friendId: string) => {
-    updateAppPath('/');
-    setAppPath('/');
-    setSelectedFriendId(friendId);
-    setIsComposingNextRound(false);
-    setView('thread');
-    setIsMenuOpen(false);
+    navigateToRoute(createThreadRoute(friendId));
   };
 
   const handleCreateGame = (friendId: string) => {
-    updateAppPath('/');
-    setAppPath('/');
-    setSelectedFriendId(friendId);
+    navigateToRoute(createThreadRoute(friendId), { resetCompose: false });
     setIsComposingNextRound(true);
-    setView('thread');
-    setIsMenuOpen(false);
   };
 
   const handleCreateRound = (round: Round) => {
-    updateAppPath('/');
-    setAppPath('/');
+    const friendId = getSelectedFriendIdFromRound(round, currentUserId);
     setRounds((currentRounds) => [round, ...currentRounds]);
-    setSelectedFriendId(getSelectedFriendIdFromRound(round, currentUserId));
-    setIsComposingNextRound(false);
-    setView('thread');
+    navigateToRoute(friendId ? createThreadRoute(friendId) : createHomeRoute());
   };
 
   const handleOpenFriends = () => {
-    updateAppPath('/');
-    setAppPath('/');
-    setView('friends');
-    setIsMenuOpen(false);
-    setIsComposingNextRound(false);
+    navigateToRoute(createFriendsRoute());
   };
 
   const handleOpenHome = () => {
-    updateAppPath('/');
-    setAppPath('/');
-    setView('home');
-    setIsMenuOpen(false);
-    setIsComposingNextRound(false);
+    navigateToRoute(createHomeRoute());
   };
 
   const handleOpenCampaign = () => {
-    updateAppPath('/campaign');
-    setAppPath('/campaign');
-    setView(DEFAULT_SIGNED_IN_VIEW);
-    setIsMenuOpen(false);
-    setIsComposingNextRound(false);
+    navigateToRoute(createCampaignRoute());
   };
 
   const handleHomeRefresh = useCallback(async () => {
@@ -724,11 +816,7 @@ function App() {
 
     try {
       await signOut();
-      updateAppPath('/', { replace: true });
-      setAppPath('/');
-      setView(DEFAULT_SIGNED_IN_VIEW);
-      setIsMenuOpen(false);
-      setIsComposingNextRound(false);
+      navigateToRoute(createHomeRoute(), { replace: true });
     } catch (error) {
       setSignOutError(error instanceof Error ? error.message : 'Unable to sign out.');
     }
