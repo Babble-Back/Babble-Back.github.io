@@ -16,9 +16,12 @@ import {
   listCampaignLeaderboard,
   loadActiveCampaignState,
 } from '../../../lib/campaigns';
-import { preprocessAudioBlob } from '../../../lib/asr/preprocess';
-import { scoreAudio, warmASRScorer } from '../../../lib/asr/scoring';
 import { useCoins } from '../../resources/ResourceProvider';
+import {
+  scoreCampaignAttempt,
+  type CampaignAttemptScoreDebug,
+  warmCampaignAttemptScorer,
+} from '../campaignAttemptScoring';
 import { buildBackwardPhraseExample, formatDifficultyLabel } from '../scoring';
 
 interface CampaignPanelProps {
@@ -257,7 +260,9 @@ export function CampaignPanel({ currentUserId }: CampaignPanelProps) {
   const [leaderboardError, setLeaderboardError] = useState<string | null>(null);
   const [isLoadingLeaderboard, setIsLoadingLeaderboard] = useState(false);
   const [asrWarmError, setAsrWarmError] = useState<string | null>(null);
+  const [isScorerWarming, setIsScorerWarming] = useState(true);
   const [isStartingAttempt, setIsStartingAttempt] = useState(false);
+  const [scoreDebug, setScoreDebug] = useState<CampaignAttemptScoreDebug | null>(null);
   const [activeAttemptCharge, setActiveAttemptCharge] = useState<{
     charged: boolean;
     cost: number;
@@ -276,6 +281,7 @@ export function CampaignPanel({ currentUserId }: CampaignPanelProps) {
     setIsAnimatingReward(false);
     setActiveAttemptCharge(null);
     setIsStartingAttempt(false);
+    setScoreDebug(null);
     setError(null);
     setInfo(null);
     setCoinPreview(null);
@@ -336,14 +342,18 @@ export function CampaignPanel({ currentUserId }: CampaignPanelProps) {
 
     const warmAsr = async () => {
       try {
-        await warmASRScorer();
+        await warmCampaignAttemptScorer();
       } catch (caughtError) {
         if (!cancelled) {
           setAsrWarmError(
             caughtError instanceof Error
               ? caughtError.message
-              : 'Unable to warm the browser speech scorer.',
+              : 'Unable to warm Whisper Tiny in the browser.',
           );
+        }
+      } finally {
+        if (!cancelled) {
+          setIsScorerWarming(false);
         }
       }
     };
@@ -480,6 +490,7 @@ export function CampaignPanel({ currentUserId }: CampaignPanelProps) {
     setStars(0);
     setCampaignReward(null);
     setIsAnimatingReward(false);
+    setScoreDebug(null);
     setCoinPreview(null);
     attemptRecorder.clearRecording();
     setStage('attempt-ready');
@@ -543,6 +554,7 @@ export function CampaignPanel({ currentUserId }: CampaignPanelProps) {
         setStars(0);
         setCampaignReward(null);
         setIsAnimatingReward(false);
+        setScoreDebug(null);
         setCoinPreview(null);
         attemptRecorder.clearRecording();
 
@@ -646,9 +658,11 @@ export function CampaignPanel({ currentUserId }: CampaignPanelProps) {
     setError(null);
 
     try {
-      const nextReversedAttempt = await reverseAudioBlob(attemptRecording);
-      const processedAttemptAudio = await preprocessAudioBlob(nextReversedAttempt);
-      const attemptScoreResult = await scoreAudio(processedAttemptAudio, activeChallenge.phrase);
+      const attemptScoreResult = await scoreCampaignAttempt({
+        attemptBlob: attemptRecording,
+        targetPhrase: activeChallenge.phrase,
+      });
+      const nextReversedAttempt = attemptScoreResult.reversedAttemptBlob;
       const nextScore = attemptScoreResult.score;
       const nextStars = attemptScoreResult.stars;
       let rewardResult: {
@@ -705,6 +719,7 @@ export function CampaignPanel({ currentUserId }: CampaignPanelProps) {
 
       setReversedAttemptRecording(nextReversedAttempt);
       setStars(nextStars);
+      setScoreDebug(attemptScoreResult.debug);
 
       let nextBalance = rewardResult.currentBalance;
 
@@ -787,6 +802,26 @@ export function CampaignPanel({ currentUserId }: CampaignPanelProps) {
     updateRewardPreview,
     campaignCurrency,
   ]);
+
+  const renderScoringDebug = () => {
+    if (!import.meta.env.DEV || !scoreDebug) {
+      return null;
+    }
+
+    return (
+      <details className="result-box">
+        <summary>Whisper scorer debug</summary>
+        <p><strong>Target phrase:</strong> {scoreDebug.targetPhrase}</p>
+        <p><strong>Target token ids:</strong> {scoreDebug.targetTokenIds.join(', ') || 'none'}</p>
+        <p><strong>Generated sequence:</strong> {scoreDebug.generatedSequence || '(empty)'}</p>
+        <p><strong>Generated token ids:</strong> {scoreDebug.generatedTokenIds.join(', ') || 'none'}</p>
+        <p><strong>Decode steps:</strong> {scoreDebug.totalDecodeSteps}</p>
+        <p><strong>Raw phrase log-likelihood:</strong> {scoreDebug.rawPhraseLogLikelihood}</p>
+        <p><strong>Normalized campaign score:</strong> {scoreDebug.normalizedCampaignScore}</p>
+        <p><strong>Stars:</strong> {scoreDebug.stars}</p>
+      </details>
+    );
+  };
 
   useEffect(() => {
     if (!leaderboardOpen || !campaignState) {
@@ -1005,18 +1040,19 @@ export function CampaignPanel({ currentUserId }: CampaignPanelProps) {
             onDisplayedCoinsChange={updateRewardPreview}
             reward={campaignReward}
             startCompleted={!isAnimatingReward}
-          >
-            {reversedAttemptRecording ? (
-              <AudioPlayerCard
-                blob={reversedAttemptRecording}
-                description="This reversed clip was converted back to forward speech and scored in the browser."
-                title="Scoring Audio"
-              />
-            ) : null}
-            <div className="button-row">
-              <button className="button secondary" onClick={resetFlow} type="button">
-                Done
-              </button>
+            >
+              {reversedAttemptRecording ? (
+                <AudioPlayerCard
+                  blob={reversedAttemptRecording}
+                  description="This reversed clip was converted back to forward speech and scored in the browser."
+                  title="Scoring Audio"
+                />
+              ) : null}
+              {renderScoringDebug()}
+              <div className="button-row">
+                <button className="button secondary" onClick={resetFlow} type="button">
+                  Done
+                </button>
               <button
                 className="button primary"
                 disabled={
@@ -1058,22 +1094,23 @@ export function CampaignPanel({ currentUserId }: CampaignPanelProps) {
               </div>
             </div>
           </div>
-          <div className="audio-grid">
-            <AudioPlayerCard
-              blob={attemptRecording}
-              description="Your recorded attempt."
-              title="Attempt Audio"
+            <div className="audio-grid">
+              <AudioPlayerCard
+                blob={attemptRecording}
+                description="Your recorded attempt."
+                title="Attempt Audio"
             />
             <AudioPlayerCard
               blob={reversedAttemptRecording}
               description="This reversed clip was converted back to forward speech and scored in the browser."
-              title="Scoring Audio"
-            />
-          </div>
-          <div className="button-row">
-            <button className="button secondary" onClick={resetFlow} type="button">
-              Done
-            </button>
+                title="Scoring Audio"
+              />
+            </div>
+            {renderScoringDebug()}
+            <div className="button-row">
+              <button className="button secondary" onClick={resetFlow} type="button">
+                Done
+              </button>
             {stars < 3 ? (
               <button
                 className="button primary"
@@ -1130,6 +1167,8 @@ export function CampaignPanel({ currentUserId }: CampaignPanelProps) {
         {stage === 'overview' ? (
           <div className="campaign-road-page">
             {info ? <div className="success-banner">{info}</div> : null}
+            {error ? <div className="error-banner">{error}</div> : null}
+            {asrWarmError ? <div className="error-banner">{asrWarmError}</div> : null}
 
             {isLoadingCampaign ? (
               <div className="round-loader-callout" aria-live="polite" role="status">
@@ -1137,6 +1176,14 @@ export function CampaignPanel({ currentUserId }: CampaignPanelProps) {
                 <div>
                   <strong>Loading campaign...</strong>
                   <p>Fetching the active month, challenge road, and your progress.</p>
+                </div>
+              </div>
+            ) : isScorerWarming ? (
+              <div className="round-loader-callout" aria-live="polite" role="status">
+                <WaveformLoader className="round-loader-callout-spinner" size={72} strokeWidth={3.2} />
+                <div>
+                  <strong>Loading Whisper Tiny...</strong>
+                  <p>The first campaign score will take longer while the browser model warms up.</p>
                 </div>
               </div>
             ) : !campaignState ? (
@@ -1225,6 +1272,17 @@ export function CampaignPanel({ currentUserId }: CampaignPanelProps) {
         ) : (
           <div className="campaign-play-page">
             {info ? <div className="success-banner">{info}</div> : null}
+            {error ? <div className="error-banner">{error}</div> : null}
+            {asrWarmError ? <div className="error-banner">{asrWarmError}</div> : null}
+            {isScorerWarming && stage !== 'processing' ? (
+              <div className="round-loader-callout" aria-live="polite" role="status">
+                <WaveformLoader className="round-loader-callout-spinner" size={72} strokeWidth={3.2} />
+                <div>
+                  <strong>Loading Whisper Tiny...</strong>
+                  <p>The first scoring pass will finish once the browser model is ready.</p>
+                </div>
+              </div>
+            ) : null}
 
             {activeChallenge ? (
               <div className="campaign-play-header">
@@ -1288,28 +1346,31 @@ export function CampaignPanel({ currentUserId }: CampaignPanelProps) {
                 </div>
               </div>
             ) : (
-              <div className="campaign-leaderboard-list" role="list">
-                {leaderboardEntries.map((entry, index) => {
-                  const username =
-                    typeof entry.username === 'string'
-                      ? entry.username
-                      : typeof entry.user_username === 'string'
-                        ? entry.user_username
-                        : 'player';
-                  const progress =
-                    typeof entry.completedCount === 'number'
-                      ? entry.completedCount
-                      : Number(entry.completed_count ?? 0);
+              <>
+                {leaderboardError ? <div className="error-banner">{leaderboardError}</div> : null}
+                <div className="campaign-leaderboard-list" role="list">
+                  {leaderboardEntries.map((entry, index) => {
+                    const username =
+                      typeof entry.username === 'string'
+                        ? entry.username
+                        : typeof entry.user_username === 'string'
+                          ? entry.user_username
+                          : 'player';
+                    const progress =
+                      typeof entry.completedCount === 'number'
+                        ? entry.completedCount
+                        : Number(entry.completed_count ?? 0);
 
-                  return (
-                    <div className="campaign-leaderboard-row" key={`${username}-${index}`} role="listitem">
-                      <span className="campaign-leaderboard-rank">#{index + 1}</span>
-                      <strong>{username}</strong>
-                      <span>{progress} cleared</span>
-                    </div>
-                  );
-                })}
-              </div>
+                    return (
+                      <div className="campaign-leaderboard-row" key={`${username}-${index}`} role="listitem">
+                        <span className="campaign-leaderboard-rank">#{index + 1}</span>
+                        <strong>{username}</strong>
+                        <span>{progress} cleared</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
             )}
           </div>
         </div>
