@@ -1,8 +1,11 @@
 import { createClient } from '@supabase/supabase-js';
 import { readFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
-import { syllable } from 'syllable';
-import { normalizePackText } from '../src/utils/difficulty';
+import {
+  cleanPackTexts,
+  computeDifficulty,
+  normalizePackText,
+} from '../src/utils/difficulty';
 
 type Difficulty = 'easy' | 'medium' | 'hard';
 type CampaignMode = 'normal' | 'reverse_only';
@@ -58,12 +61,113 @@ const CAMPAIGN_SELECTION_COUNTS = {
 
 const EASTER_WORDS: Record<Difficulty, string[]> = {
   easy: [
+    'egg',
+    'eggs',
+    'nest',
+    'nests',
+    'lamb',
+    'lambs',
+    'chick',
+    'chicks',
+    'bloom',
+    'blooms',
+    'bud',
+    'buds',
+    'lily',
+    'lilies',
+    'tulip',
+    'tulips',
+    'robin',
+    'robins',
+    'peeps',
+    'bonnet',
+    'bunny',
+    'rabbit',
+    'ribbon',
+    'pastels',
+    'sunrise',
+    'spring',
+    'meadow',
+    'red egg',
+    'red eggs',
+    'red nest',
+    'red nests',
+    'red bud',
+    'red buds',
+    'red bloom',
+    'red lamb',
+    'red lambs',
+    'red chick',
+    'red hop',
+    'red hops',
+    'red glow',
+    'blue egg',
+    'blue eggs',
+    'blue nest',
+    'blue nests',
+    'blue bud',
+    'blue buds',
+    'blue bloom',
+    'blue lamb',
+    'blue lambs',
+    'blue chick',
+    'blue hop',
+    'blue hops',
+    'blue glow',
+    'pink egg',
+    'pink eggs',
+    'pink nest',
+    'pink nests',
+    'pink bud',
+    'pink buds',
+    'pink bloom',
+    'pink lamb',
+    'pink lambs',
+    'pink chick',
+    'pink hop',
+    'pink hops',
+    'pink glow',
+    'gold egg',
+    'gold eggs',
+    'gold nest',
+    'gold nests',
+    'gold bud',
+    'gold buds',
+    'gold bloom',
+    'gold lamb',
+    'gold lambs',
+    'gold chick',
+    'gold hop',
+    'gold hops',
+    'gold glow',
+    'mint egg',
+    'mint eggs',
+    'mint nest',
+    'mint nests',
+    'mint bud',
+    'mint buds',
+    'mint bloom',
+    'mint lamb',
+    'mint lambs',
+    'mint chick',
+    'mint hop',
+    'mint hops',
+    'mint glow',
+    'soft egg',
+    'soft eggs',
+    'soft nest',
+    'soft nests',
+    'soft bud',
+    'soft buds',
+    'soft bloom',
+    'soft lamb',
+  ],
+  medium: [
+    'empty tomb',
     'easter bunny',
     'easter egg',
-    'egg hunt',
     'bunny ears',
     'spring flowers',
-    'chocolate bunny',
     'jelly beans',
     'easter basket',
     'painted eggs',
@@ -97,10 +201,8 @@ const EASTER_WORDS: Record<Difficulty, string[]> = {
     'easter candy',
     'bunny trail',
     'egg stickers',
-    'egg spoon',
     'spring meadow',
     'candy basket',
-    'egg shell',
     'bunny nose',
     'fluffy tail',
     'spring picnic',
@@ -126,7 +228,6 @@ const EASTER_WORDS: Record<Difficulty, string[]> = {
     'sugar eggs',
     'spring wreath',
     'rabbit tracks',
-    'lamb cake',
     'easter bonnet',
     'bunny burrow',
     'garden party',
@@ -144,11 +245,9 @@ const EASTER_WORDS: Record<Difficulty, string[]> = {
     'easter table',
     'flower garland',
     'easter grass',
-    'egg race',
     'spring path',
     'egg painter',
     'basket goodies',
-    'egg prize',
     'bunny basket',
     'yellow chick',
     'blooming garden',
@@ -158,210 +257,114 @@ const EASTER_WORDS: Record<Difficulty, string[]> = {
     'festive eggs',
     'spring sprout',
     'easter joy',
-  ],
-  medium: [
-    'empty tomb',
-    'resurrection morning',
     'rolled away stone',
     'garden sunrise',
-    'third day',
     'easter vigil',
     'paschal candle',
     'sunrise hymn',
     'lenten season',
-    'holy week',
-    'palm branches',
-    'good friday',
-    'easter sunrise',
-    'stone doorway',
-    'linen cloth',
-    'garden tomb',
-    'new life',
+  ],
+  hard: [
+    'resurrection morning',
     'triumphal entry',
-    'palm procession',
     'alleluia chorus',
-    'spring renewal',
-    'rebirth symbol',
-    'lily bouquet',
-    'egg dye kit',
-    'candy-filled eggs',
     'scavenger basket',
-    'pastel frosting',
     'bunny centerpiece',
     'rainbow jelly beans',
-    'marshmallow nests',
-    'speckled eggshells',
-    'carrot cupcakes',
     'lily arrangement',
     'sunrise gathering',
-    'morning choir',
-    'quiet garden',
-    'white lilies',
-    'hope restored',
-    'stone rolled back',
     'victory over death',
-    'life renewed',
-    'shining dawn',
-    'spring lamb',
-    'blooming orchard',
-    'meadow picnic',
     'festival bonnet',
-    'ribboned basket',
-    'gold foil bunny',
-    'egg tapping',
     'egg decorating',
     'hidden candy trail',
     'paint-splattered eggs',
     'pastel tablecloth',
-    'springtime feast',
     'flowering dogwood',
-    "robin's nest",
-    'bunny footprint',
-    'secret egg stash',
-    'brunch buffet',
-    'glazed ham',
-    'hot cross buns',
-    'deviled eggs',
-    'buttered rolls',
-    'spring centerpiece',
-    'basket surprise',
-    'chocolate nest',
-    'sunlit chapel',
     'quiet reflection',
-    'hopeful dawn',
-    'resurrection',
-    'renewed spirit',
-    'stone-sealed tomb',
-    'dawn watch',
-    'burial spices',
-    'garden pathway',
     'morning alleluias',
-    'procession route',
-    'festive ribbon',
-    'blossom branches',
-    'lilac breeze',
-    'easter lilies',
     'spring awakening',
     'colorful bonnets',
     'family egg relay',
-    'picnic in bloom',
     'peanut butter egg',
-    'foil-wrapped candy',
     'hollow chocolate egg',
-    'confetti eggs',
-    'bunny-shaped cake',
-    'spring tea party',
-    'gentle rainfall',
-    'fresh-cut tulips',
     'daisy centerpiece',
     'bunny cookie tin',
-    'egg hunt whistle',
-    'basket raffle',
-    'floral wreath',
-    'dawn chorus',
-    'hope-filled morning',
-  ],
-  hard: [
-    'anastasis',
     'paschal mystery',
     'harrowing of hades',
     'stone-hewn sepulcher',
     'garden sepulcher',
-    'linen wrappings',
-    'burial shroud',
-    'burial spices',
-    'first light vigil',
-    'alabaster jar',
-    'mourning turned joy',
-    'dawn at the tomb',
-    'sealed tomb door',
-    'paschal greeting',
-    'risen indeed',
-    'great fifty days',
     'octave of easter',
-    'bright week',
-    'paschal tide',
-    'easter octave',
     'alleluia banner',
     'processional palms',
-    'lenten fast',
-    'holy saturday',
     'tenebrae service',
-    'vigil fire',
-    'new fire',
-    'font blessing',
-    'baptismal vows',
-    'white vestments',
     'sanctuary lilies',
-    'garden watch',
-    'rolling stone',
-    'break of dawn',
-    'grave clothes',
     'spice-bearing women',
-    'burial linen',
     'sunrise liturgy',
-    'victory hymn',
     'empty sepulcher',
-    'fragrant myrrh',
     'aloes and spices',
-    'stone threshold',
-    'holy hush',
-    'trumpet fanfare',
-    'paschal feast',
     'resurrection joy',
-    'death undone',
-    'life triumphant',
-    'darkness to dawn',
-    'hope made new',
-    'garden stillness',
     'firstfruits of spring',
-    'rolling away',
-    'watch before dawn',
-    'grave turned garden',
     'morning procession',
-    'vigil psalm',
     'easter proclamation',
-    'exsultet hymn',
-    'paschal moon',
     'resurrection garden',
-    'holy silence',
-    'dawn liturgy',
     'choral alleluia',
     'baptismal renewal',
-    'festal white',
     'lily procession',
-    'eggshell mosaic',
     'pysanka patterns',
     'cascarones confetti',
-    'sugar lamb',
-    'simnel cake',
-    'kulich bread',
-    'tsoureki loaf',
-    'cozonac slice',
-    'eastertide bells',
-    'vernal rebirth',
     'painted pysanky',
-    'wax-resist eggs',
-    'marzipan chicks',
     'sunrise canticle',
-    'paschal lamb',
-    'stone rolled aside',
-    'fragrant tomb',
     'garden anointing',
     'alleluia return',
     'lily-scented chapel',
     'resurrection hope',
-    'grave clothes left',
-    'dawn of gladness',
-    'solemn vigil',
     'sanctuary floral arch',
-    'crown of blossoms',
     'joyful procession',
-    'tomb in twilight',
     'resurrection tapestry',
     'paschal troparion',
-    'vigil lantern',
-    'sepulcher dawn',
+    'painted egg garland',
+    'pastel ribbon garland',
+    'golden basket parade',
+    'spring blossom canopy',
+    'festival candy bouquet',
+    'sunrise chapel chorus',
+    'flower market parade',
+    'chocolate rabbit parade',
+    'confetti egg cascade',
+    'painted garden pathway',
+    'lily chapel candles',
+    'carrot cupcake tower',
+    'marshmallow candy nest',
+    'bunny lantern parade',
+    'tulip meadow picnic',
+    'resurrection candlelight',
+    'morning garden vigil',
+    'paschal candlelight vigil',
+    'flowering chapel arch',
+    'springtime basket display',
+    'painted bonnet parade',
+    'gold foil egg display',
+    'sunrise hymn rehearsal',
+    'garden party centerpiece',
+    'easter morning fanfare',
+    'jelly bean centerpiece',
+    'blossom pathway lanterns',
+    'sunlit ribbon canopies',
+    'festival lily garland',
+    'candy basket showcase',
+    'cathedral garden chorus',
+    'spring processional banner',
+    'painted egg centerpiece',
+    'chapel flower procession',
+    'ribbon-wrapped chocolate eggs',
+    'celebration picnic hamper',
+    'blooming orchard pathway',
+    'springtime candy exchange',
+    'garden sunrise procession',
+    'festival sunrise chorus',
+    'painted egg ceremony',
+    'flower crown workshop',
+    'eastertide candlelight',
   ],
 };
 
@@ -456,24 +459,77 @@ function buildHardWords() {
 }
 
 function assertExactUniqueCount(words: string[], expectedCount: number, label: string) {
-  const normalizedWords = words.map((word) => normalizePackText(word));
-  const uniqueWords = new Set(normalizedWords);
+  const cleanedWords = cleanPackTexts(words);
 
-  if (normalizedWords.length !== expectedCount || uniqueWords.size !== expectedCount) {
+  if (cleanedWords.length !== expectedCount || words.length !== expectedCount) {
     throw new Error(`${label} words must contain exactly ${expectedCount} unique entries.`);
   }
 
-  return normalizedWords;
+  return cleanedWords;
+}
+
+function assertDifficultyBucket(words: string[], expectedDifficulty: Difficulty, label: string) {
+  const mismatches = words
+    .map((word) => ({
+      word,
+      computed: computeDifficulty(word),
+    }))
+    .filter((entry) => entry.computed.difficulty !== expectedDifficulty);
+
+  if (mismatches.length > 0) {
+    const summary = mismatches
+      .slice(0, 5)
+      .map(
+        (entry) =>
+          `"${entry.word}" => ${entry.computed.difficulty} (${entry.computed.score.toFixed(2)})`,
+      )
+      .join(', ');
+
+    throw new Error(
+      `${label} words must all score as ${expectedDifficulty}. Found ${mismatches.length} mismatches: ${summary}`,
+    );
+  }
+
+  return words;
+}
+
+function assertNoCrossBucketDuplicates(wordsByDifficulty: Record<Difficulty, string[]>) {
+  const seen = new Map<string, Difficulty>();
+
+  for (const difficulty of Object.keys(wordsByDifficulty) as Difficulty[]) {
+    for (const word of wordsByDifficulty[difficulty]) {
+      const normalizedWord = normalizePackText(word);
+      const existingDifficulty = seen.get(normalizedWord);
+
+      if (existingDifficulty) {
+        throw new Error(
+          `Duplicate Easter phrase "${normalizedWord}" found in both ${existingDifficulty} and ${difficulty}.`,
+        );
+      }
+
+      seen.set(normalizedWord, difficulty);
+    }
+  }
 }
 
 function toWordRows(packId: string, words: string[], difficulty: Difficulty): WordRow[] {
-  return words.map((text) => ({
-    pack_id: packId,
-    text,
-    syllables: syllable(text),
-    char_length: text.length,
-    difficulty,
-  }));
+  return words.map((text) => {
+    const computed = computeDifficulty(text);
+
+    if (computed.difficulty !== difficulty) {
+      throw new Error(
+        `Expected "${text}" to score as ${difficulty}, but it scored as ${computed.difficulty}.`,
+      );
+    }
+
+    return {
+      pack_id: packId,
+      text,
+      syllables: computed.syllables,
+      char_length: computed.charLength,
+      difficulty: computed.difficulty,
+    };
+  });
 }
 
 function spreadSelect(words: string[], count: number) {
@@ -536,6 +592,21 @@ function buildChallengePlan(
 
   if (challenges.length !== 100) {
     throw new Error(`Expected 100 campaign challenges, received ${challenges.length}.`);
+  }
+
+  const mismatchedChallenges = challenges.filter(
+    (challenge) => computeDifficulty(challenge.phrase).difficulty !== challenge.difficulty,
+  );
+
+  if (mismatchedChallenges.length > 0) {
+    const summary = mismatchedChallenges
+      .slice(0, 5)
+      .map((challenge) => `${challenge.challenge_index}:${challenge.phrase}`)
+      .join(', ');
+
+    throw new Error(
+      `Campaign challenges must match their stored difficulty. Found ${mismatchedChallenges.length} mismatches: ${summary}`,
+    );
   }
 
   return challenges;
@@ -784,9 +855,27 @@ async function seedEasterCampaign() {
   await hydrateEnvironment();
 
   const client = createSupabaseClient();
-  const easyWords = assertExactUniqueCount(buildEasyWords(), 100, 'Easy');
-  const mediumWords = assertExactUniqueCount(buildMediumWords(), 100, 'Medium');
-  const hardWords = assertExactUniqueCount(buildHardWords(), 100, 'Hard');
+  const easyWords = assertDifficultyBucket(
+    assertExactUniqueCount(buildEasyWords(), 100, 'Easy'),
+    'easy',
+    'Easy',
+  );
+  const mediumWords = assertDifficultyBucket(
+    assertExactUniqueCount(buildMediumWords(), 100, 'Medium'),
+    'medium',
+    'Medium',
+  );
+  const hardWords = assertDifficultyBucket(
+    assertExactUniqueCount(buildHardWords(), 100, 'Hard'),
+    'hard',
+    'Hard',
+  );
+
+  assertNoCrossBucketDuplicates({
+    easy: easyWords,
+    medium: mediumWords,
+    hard: hardWords,
+  });
 
   const packId = await upsertPack(client);
   const wordRows: WordRow[] = [
