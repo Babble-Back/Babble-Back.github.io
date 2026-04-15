@@ -53,6 +53,14 @@ const END_DATE = '2026-05-01T05:59:59.000Z';
 const EASY_PACK_UNLOCK_COUNT = 33;
 const MEDIUM_PACK_UNLOCK_COUNT = 66;
 const HARD_PACK_UNLOCK_COUNT = 100;
+const CAMPAIGN_CURRENCY_RESOURCE_TYPE = 'easter_egg';
+const CAMPAIGN_CURRENCY_SINGULAR_NAME = 'egg';
+const CAMPAIGN_CURRENCY_PLURAL_NAME = 'eggs';
+const CAMPAIGN_PACK_UNLOCK_COSTS = {
+  easy: 25,
+  medium: 50,
+  hard: 150,
+} as const;
 const CAMPAIGN_SELECTION_COUNTS = {
   easy: 33,
   medium: 33,
@@ -783,6 +791,12 @@ async function upsertCampaign(
             medium: MEDIUM_PACK_UNLOCK_COUNT,
             hard: HARD_PACK_UNLOCK_COUNT,
           },
+          currency: {
+            resource_type: CAMPAIGN_CURRENCY_RESOURCE_TYPE,
+            singular_name: CAMPAIGN_CURRENCY_SINGULAR_NAME,
+            plural_name: CAMPAIGN_CURRENCY_PLURAL_NAME,
+            pack_costs: CAMPAIGN_PACK_UNLOCK_COSTS,
+          },
           easy_word_count: 100,
           medium_word_count: 100,
           hard_word_count: 100,
@@ -834,6 +848,12 @@ async function upsertCampaign(
           easy: EASY_PACK_UNLOCK_COUNT,
           medium: MEDIUM_PACK_UNLOCK_COUNT,
           hard: HARD_PACK_UNLOCK_COUNT,
+        },
+        currency: {
+          resource_type: CAMPAIGN_CURRENCY_RESOURCE_TYPE,
+          singular_name: CAMPAIGN_CURRENCY_SINGULAR_NAME,
+          plural_name: CAMPAIGN_CURRENCY_PLURAL_NAME,
+          pack_costs: CAMPAIGN_PACK_UNLOCK_COSTS,
         },
         easy_word_count: 100,
         medium_word_count: 100,

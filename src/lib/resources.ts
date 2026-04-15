@@ -2,6 +2,12 @@ import { RESOURCE_TYPES, type ResourceType } from './resourceTypes';
 import { supabase, supabaseConfigError } from './supabase';
 
 interface ResourceRow {
+  resource_type?: string;
+  amount: number;
+}
+
+export interface ResourceBalance {
+  resourceType: ResourceType;
   amount: number;
 }
 
@@ -27,6 +33,23 @@ export async function getResourceAmount(userId: string, resourceType: ResourceTy
   }
 
   return data?.amount ?? 0;
+}
+
+export async function listResourceBalances(userId: string): Promise<ResourceBalance[]> {
+  const client = requireSupabase();
+  const { data, error } = await client
+    .from('user_resources')
+    .select('resource_type, amount')
+    .eq('user_id', userId);
+
+  if (error) {
+    throw new Error(`Unable to load resource balances: ${error.message}`);
+  }
+
+  return ((data as ResourceRow[] | null) ?? []).map((row) => ({
+    resourceType: (row.resource_type ?? '') as ResourceType,
+    amount: row.amount ?? 0,
+  }));
 }
 
 export async function getCoins(userId: string) {

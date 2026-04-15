@@ -1,9 +1,15 @@
 import { supabase, supabaseConfigError } from './supabase';
 import { clearWordPackUnlockCache } from './wordPacks';
+import type { WordDifficulty } from '../utils/difficulty';
 
 const MAX_CACHE_AGE_MS = 1000 * 60 * 10;
 const ACTIVE_CAMPAIGN_STATE_CACHE_PREFIX = 'active_campaign_state_cache:';
 const CAMPAIGN_RETRY_COST = 5;
+const DEFAULT_PACK_UNLOCK_COSTS: Record<WordDifficulty, number> = {
+  easy: 25,
+  medium: 50,
+  hard: 150,
+};
 
 export type CampaignChallengeDifficulty = 'easy' | 'medium' | 'hard';
 export type CampaignChallengeMode = 'normal' | 'reverse_only';
@@ -15,7 +21,21 @@ export interface Campaign {
   startDate: string | null;
   endDate: string | null;
   isActive: boolean;
+  rewardPackId: string | null;
   config: Record<string, unknown>;
+}
+
+export interface CampaignCurrencyDefinition {
+  resourceType: string;
+  singularName: string;
+  pluralName: string;
+  packCosts: Record<WordDifficulty, number>;
+}
+
+export interface CampaignCatalogEntry {
+  campaign: Campaign;
+  assets: Record<string, string>;
+  currency: CampaignCurrencyDefinition | null;
 }
 
 export interface CampaignChallenge {
@@ -75,6 +95,9 @@ export interface CampaignCompletionResult {
   advanced: boolean;
   rewardAmount: number;
   currentBalance: number | null;
+  currencyResourceType: string | null;
+  currencyRewardAmount: number;
+  currencyCurrentBalance: number | null;
 }
 
 export interface CampaignAttemptRewardResult {
@@ -82,6 +105,9 @@ export interface CampaignAttemptRewardResult {
   userId: string;
   rewardAmount: number;
   currentBalance: number | null;
+  currencyResourceType: string | null;
+  currencyRewardAmount: number;
+  currencyCurrentBalance: number | null;
 }
 
 interface CachedPayload<T> {
@@ -96,7 +122,14 @@ interface CampaignRow {
   start_date: string | null;
   end_date: string | null;
   is_active: boolean;
+  reward_pack_id?: string | null;
   config: Record<string, unknown> | null;
+}
+
+interface CampaignAssetRow {
+  campaign_id: string;
+  key: string;
+  value: string;
 }
 
 interface CampaignChallengeRow {
@@ -175,6 +208,12 @@ interface CampaignCompletionRow {
   result_reward_amount?: number;
   current_balance?: number;
   result_current_balance?: number;
+  currency_resource_type?: string | null;
+  result_currency_resource_type?: string | null;
+  currency_reward_amount?: number;
+  result_currency_reward_amount?: number;
+  currency_current_balance?: number | null;
+  result_currency_current_balance?: number | null;
 }
 
 interface CampaignAttemptRewardRow {
@@ -186,6 +225,12 @@ interface CampaignAttemptRewardRow {
   result_reward_amount?: number;
   current_balance?: number;
   result_current_balance?: number;
+  currency_resource_type?: string | null;
+  result_currency_resource_type?: string | null;
+  currency_reward_amount?: number;
+  result_currency_reward_amount?: number;
+  currency_current_balance?: number | null;
+  result_currency_current_balance?: number | null;
 }
 
 interface SupabaseRpcErrorLike {
@@ -193,6 +238,33 @@ interface SupabaseRpcErrorLike {
   details?: string | null;
   hint?: string | null;
   code?: string | null;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+
+  return value as Record<string, unknown>;
+}
+
+function readString(value: unknown) {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function readPositiveInteger(value: unknown, fallback: number) {
+  const numericValue =
+    typeof value === 'number'
+      ? value
+      : typeof value === 'string' && value.trim()
+        ? Number(value)
+        : NaN;
+
+  if (!Number.isFinite(numericValue) || numericValue <= 0) {
+    return fallback;
+  }
+
+  return Math.floor(numericValue);
 }
 
 function requireSupabase() {
@@ -316,6 +388,47 @@ function clearActiveCampaignStateCache(userId?: string | null) {
   window.localStorage.removeItem(`${ACTIVE_CAMPAIGN_STATE_CACHE_PREFIX}${normalizedUserId}`);
 }
 
+export function clearActiveCampaignStateLocalCache(userId?: string | null) {
+  clearActiveCampaignStateCache(userId);
+}
+
+export function getCampaignCurrencyDefinition(
+  config: Record<string, unknown> | null | undefined,
+): CampaignCurrencyDefinition | null {
+  const currencyConfig = asRecord(config?.currency);
+  const resourceType = readString(currencyConfig?.resource_type);
+
+  if (!resourceType) {
+    return null;
+  }
+
+  const singularName = readString(currencyConfig?.singular_name) ?? resourceType;
+  const pluralName = readString(currencyConfig?.plural_name) ?? `${singularName}s`;
+  const packCosts = asRecord(currencyConfig?.pack_costs);
+
+  return {
+    resourceType,
+    singularName,
+    pluralName,
+    packCosts: {
+      easy: readPositiveInteger(packCosts?.easy, DEFAULT_PACK_UNLOCK_COSTS.easy),
+      medium: readPositiveInteger(packCosts?.medium, DEFAULT_PACK_UNLOCK_COSTS.medium),
+      hard: readPositiveInteger(packCosts?.hard, DEFAULT_PACK_UNLOCK_COSTS.hard),
+    },
+  };
+}
+
+export function formatCampaignCurrencyLabel(
+  currency: CampaignCurrencyDefinition | null | undefined,
+  amount: number,
+) {
+  if (!currency) {
+    return 'currency';
+  }
+
+  return amount === 1 ? currency.singularName : currency.pluralName;
+}
+
 function buildEmptyCampaignState(userId: string): CampaignState {
   return {
     campaign: {
@@ -325,6 +438,7 @@ function buildEmptyCampaignState(userId: string): CampaignState {
       startDate: null,
       endDate: null,
       isActive: false,
+      rewardPackId: null,
       config: {},
     },
     challenges: [],
@@ -349,6 +463,7 @@ function mapCampaignRow(row: CampaignRow): Campaign {
     startDate: row.start_date,
     endDate: row.end_date,
     isActive: row.is_active,
+    rewardPackId: row.reward_pack_id?.trim() ?? null,
     config: row.config ?? {},
   };
 }
@@ -413,6 +528,12 @@ function mapCompletionRow(row: CampaignCompletionRow): CampaignCompletionResult 
     advanced: row.advanced ?? row.result_advanced ?? false,
     rewardAmount,
     currentBalance,
+    currencyResourceType:
+      row.currency_resource_type ?? row.result_currency_resource_type ?? null,
+    currencyRewardAmount:
+      row.currency_reward_amount ?? row.result_currency_reward_amount ?? 0,
+    currencyCurrentBalance:
+      row.currency_current_balance ?? row.result_currency_current_balance ?? null,
   };
 }
 
@@ -422,6 +543,12 @@ function mapAttemptRewardRow(row: CampaignAttemptRewardRow): CampaignAttemptRewa
     userId: row.user_id ?? row.result_user_id ?? '',
     rewardAmount: row.reward_amount ?? row.result_reward_amount ?? 0,
     currentBalance: row.current_balance ?? row.result_current_balance ?? null,
+    currencyResourceType:
+      row.currency_resource_type ?? row.result_currency_resource_type ?? null,
+    currencyRewardAmount:
+      row.currency_reward_amount ?? row.result_currency_reward_amount ?? 0,
+    currencyCurrentBalance:
+      row.currency_current_balance ?? row.result_currency_current_balance ?? null,
   };
 }
 
@@ -648,6 +775,47 @@ export async function awardCampaignAttemptReward(input: {
   }
 
   return mapAttemptRewardRow(row);
+}
+
+export async function listCampaignCatalog(): Promise<CampaignCatalogEntry[]> {
+  const client = requireSupabase();
+  const [{ data: campaigns, error: campaignsError }, { data: assets, error: assetsError }] =
+    await Promise.all([
+      client
+        .from('campaigns')
+        .select('id, name, theme, start_date, end_date, is_active, reward_pack_id, config')
+        .order('start_date', { ascending: false }),
+      client.from('campaign_assets').select('campaign_id, key, value'),
+    ]);
+
+  if (campaignsError) {
+    throw new Error(`Unable to load campaigns: ${campaignsError.message}`);
+  }
+
+  if (assetsError) {
+    throw new Error(`Unable to load campaign assets: ${assetsError.message}`);
+  }
+
+  const assetsByCampaignId = ((assets as CampaignAssetRow[] | null) ?? []).reduce<
+    Record<string, Record<string, string>>
+  >((entries, asset) => {
+    if (!entries[asset.campaign_id]) {
+      entries[asset.campaign_id] = {};
+    }
+
+    entries[asset.campaign_id][asset.key] = asset.value;
+    return entries;
+  }, {});
+
+  return ((campaigns as CampaignRow[] | null) ?? []).map((row) => {
+    const campaign = mapCampaignRow(row);
+
+    return {
+      campaign,
+      assets: assetsByCampaignId[campaign.id] ?? {},
+      currency: getCampaignCurrencyDefinition(campaign.config),
+    };
+  });
 }
 
 export async function listCampaignLeaderboard(

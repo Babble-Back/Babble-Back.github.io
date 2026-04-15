@@ -17,6 +17,7 @@ const ROUND_COLUMNS = [
   'recipient_id',
   'recipient_email',
   'recipient_username',
+  'pack_id',
   'correct_phrase',
   'difficulty',
   'original_audio_path',
@@ -37,6 +38,7 @@ interface RoundRow {
   recipient_id: string;
   recipient_email: string;
   recipient_username: string;
+  pack_id: string | null;
   correct_phrase: string;
   difficulty: WordDifficulty | null;
   original_audio_path: string;
@@ -51,6 +53,7 @@ interface RoundRow {
 interface CreateRoundRecordInput {
   currentUserId: string;
   recipientId: string;
+  packId: string | null;
   correctPhrase: string;
   difficulty: WordDifficulty;
   originalAudioBlob: Blob;
@@ -187,6 +190,7 @@ async function mapRoundRow(row: RoundRow): Promise<Round> {
     recipientId: row.recipient_id,
     recipientEmail: row.recipient_email,
     recipientUsername: row.recipient_username,
+    packId: row.pack_id,
     correctPhrase: row.correct_phrase,
     difficulty: row.difficulty ?? computeDifficulty(row.correct_phrase).difficulty,
     originalAudioBlob: null,
@@ -240,6 +244,7 @@ export async function createRoundRecord(
     .insert({
       id: roundId,
       recipient_id: input.recipientId,
+      pack_id: input.packId,
       correct_phrase: normalizePackText(input.correctPhrase),
       difficulty: input.difficulty,
       original_audio_path: originalAudio.path,

@@ -73,10 +73,6 @@ function getFallbackPackSummary(): WordPack {
   };
 }
 
-function isPackSelectable(pack: WordPack) {
-  return pack.isFree || pack.isUnlocked !== false;
-}
-
 function getDifficultyBuckets(words: WordEntry[]) {
   return words.reduce<Record<WordDifficulty, WordEntry[]>>(
     (buckets, word) => {
@@ -173,7 +169,11 @@ export function rememberPresentedPhrase(phrase: string) {
 }
 
 export function getDefaultPackId(packs: WordPack[]) {
-  return packs.find(isPackSelectable)?.id ?? packs[0]?.id ?? FALLBACK_WORD_PACK.id;
+  return (
+    packs.find((pack) => pack.isFree || pack.isUnlocked !== false)?.id ??
+    packs[0]?.id ??
+    FALLBACK_WORD_PACK.id
+  );
 }
 
 export function getWordPackOptions(packs: WordPack[]) {
@@ -198,9 +198,7 @@ export async function loadRoundWordPacks(
       throw new Error('No word packs are available yet.');
     }
 
-    const selectedPackId = resolveWordPackId(packs, requestedPackId, {
-      isPackSelectable,
-    });
+    const selectedPackId = resolveWordPackId(packs, requestedPackId);
 
     if (!selectedPackId) {
       throw new Error('No word pack could be selected.');

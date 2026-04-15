@@ -4,6 +4,7 @@ import { StarRating } from './components/StarRating';
 import { WaveformLoader } from './components/WaveformLoader';
 import { AuthPanel } from './features/auth/components/AuthPanel';
 import { CampaignPanel } from './features/campaign/components/CampaignPanel';
+import { InventoryPanel } from './features/resources/components/InventoryPanel';
 import { CreateRoundPanel } from './features/rounds/components/CreateRoundPanel';
 import { HomePanel, type HomeTableRow } from './features/rounds/components/HomePanel';
 import { PlayRoundPanel } from './features/rounds/components/PlayRoundPanel';
@@ -29,7 +30,7 @@ import { InstallAppPrompt } from './pwa/InstallAppPrompt';
 import { CoinDisplay, ResourceProvider } from './features/resources/ResourceProvider';
 
 type View = 'home' | 'thread';
-type AppPath = '/' | '/campaign';
+type AppPath = '/' | '/campaign' | '/inventory';
 interface AppRoute {
   appPath: AppPath;
   view: View;
@@ -57,6 +58,14 @@ function createThreadRoute(friendId: string): AppRoute {
 function createCampaignRoute(): AppRoute {
   return {
     appPath: '/campaign',
+    view: DEFAULT_SIGNED_IN_VIEW,
+    friendId: null,
+  };
+}
+
+function createInventoryRoute(): AppRoute {
+  return {
+    appPath: '/inventory',
     view: DEFAULT_SIGNED_IN_VIEW,
     friendId: null,
   };
@@ -94,7 +103,15 @@ function getAppRelativePath() {
     ? pathname.slice(basePath.length) || '/'
     : pathname;
 
-  return appRelativePath === '/campaign' ? '/campaign' : '/';
+  if (appRelativePath === '/campaign') {
+    return '/campaign';
+  }
+
+  if (appRelativePath === '/inventory') {
+    return '/inventory';
+  }
+
+  return '/';
 }
 
 function getAppRoute(): AppRoute {
@@ -105,6 +122,10 @@ function getAppRoute(): AppRoute {
   const appRelativePath = getAppRelativePath();
   if (appRelativePath === '/campaign') {
     return createCampaignRoute();
+  }
+
+  if (appRelativePath === '/inventory') {
+    return createInventoryRoute();
   }
 
   const searchParams = new URLSearchParams(window.location.search);
@@ -124,7 +145,7 @@ function buildAppRouteUrl(route: AppRoute) {
   const basePath = getNormalizedBasePath();
   const pathname = `${basePath}${route.appPath === '/' ? '' : route.appPath}` || '/';
 
-  if (route.appPath === '/campaign') {
+  if (route.appPath === '/campaign' || route.appPath === '/inventory') {
     return pathname;
   }
 
@@ -750,6 +771,10 @@ function App() {
     navigateToRoute(createCampaignRoute());
   };
 
+  const handleOpenInventory = () => {
+    navigateToRoute(createInventoryRoute());
+  };
+
   const handleHomeRefresh = useCallback(async () => {
     await refreshAppData({ silent: true });
   }, [refreshAppData]);
@@ -902,7 +927,7 @@ function App() {
                 <img alt="BackTalk" className="home-topbar-logo" src={homeLogo} />
               </button>
               <div className="home-topbar-actions">
-                <CoinDisplay />
+                <CoinDisplay onClick={handleOpenInventory} />
               </div>
             </div>
 
@@ -930,6 +955,9 @@ function App() {
                     <DrawerButton active={appPath === '/campaign'} onClick={handleOpenCampaign}>
                       Campaign
                     </DrawerButton>
+                    <DrawerButton active={appPath === '/inventory'} onClick={handleOpenInventory}>
+                      Inventory
+                    </DrawerButton>
                     <DrawerButton
                       onClick={() => {
                         void handleSignOut();
@@ -949,6 +977,9 @@ function App() {
             <div className="stack">
               {appPath === '/campaign' ? (
                 <CampaignPanel currentUserId={currentUserId} />
+              ) : null}
+              {appPath === '/inventory' ? (
+                <InventoryPanel onBack={handleOpenHome} />
               ) : null}
               {appPath === '/' && view === 'home' ? (
                 <HomePanel

@@ -8,6 +8,7 @@ import { createRoundRecord } from '../../../lib/rounds';
 import { difficultyMultiplier } from '../../../lib/rounds';
 import type { Friend } from '../../social/types';
 import type { Round } from '../types';
+import { useResourceWallet } from '../../resources/ResourceProvider';
 import {
   getDefaultPackId,
   getThreeOptions,
@@ -16,7 +17,12 @@ import {
   rememberPresentedPhrase,
   type WordOption,
 } from '../wordPacks';
-import type { WordPack, WordPackWithWords } from '../../../lib/wordPacks';
+import {
+  purchaseCampaignPackUnlock,
+  type CampaignPackCurrency,
+  type WordPack,
+  type WordPackWithWords,
+} from '../../../lib/wordPacks';
 
 interface CreateRoundPanelProps {
   currentUserId: string;
@@ -60,6 +66,36 @@ function getPackAccessLabel(pack: Pick<WordPack, 'isFree' | 'isUnlocked' | 'maxU
   return 'Unlocked';
 }
 
+function getNextPurchasableDifficulty(
+  pack: Pick<WordPack, 'isFree' | 'maxUnlockedDifficulty' | 'campaignCurrency'>,
+) {
+  if (pack.isFree || !pack.campaignCurrency) {
+    return null;
+  }
+
+  if (!pack.maxUnlockedDifficulty) {
+    return 'easy' as const;
+  }
+
+  if (pack.maxUnlockedDifficulty === 'easy') {
+    return 'medium' as const;
+  }
+
+  if (pack.maxUnlockedDifficulty === 'medium') {
+    return 'hard' as const;
+  }
+
+  return null;
+}
+
+function formatCampaignCurrencyLabel(currency: CampaignPackCurrency | null | undefined, amount: number) {
+  if (!currency) {
+    return 'currency';
+  }
+
+  return amount === 1 ? currency.singularName : currency.pluralName;
+}
+
 export function CreateRoundPanel({
   currentUserId,
   currentUserUsername,
@@ -68,6 +104,7 @@ export function CreateRoundPanel({
   onCreateRound,
 }: CreateRoundPanelProps) {
   const recorder = useAudioRecorder({ preparedStreamIdleMs: 0 });
+  const { setResourceBalance } = useResourceWallet();
   const [stage, setStage] = useState<CreateStage>('phrase');
   const [packs, setPacks] = useState<WordPack[]>([]);
   const [selectedPackId, setSelectedPackId] = useState<string>('');
@@ -75,7 +112,10 @@ export function CreateRoundPanel({
   const [selectedOption, setSelectedOption] = useState<WordOption | null>(null);
   const [availableOptions, setAvailableOptions] = useState<WordOption[]>([]);
   const [packsError, setPacksError] = useState<string | null>(null);
+  const [packInfo, setPackInfo] = useState<string | null>(null);
   const [isLoadingPacks, setIsLoadingPacks] = useState(true);
+  const [isPurchasingPack, setIsPurchasingPack] = useState(false);
+  const [packRefreshToken, setPackRefreshToken] = useState(0);
   const [reversedAudioBlob, setReversedAudioBlob] = useState<Blob | null>(null);
   const [reverseError, setReverseError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -106,7 +146,7 @@ export function CreateRoundPanel({
     return () => {
       cancelled = true;
     };
-  }, [selectedPackId]);
+  }, [packRefreshToken, selectedPackId]);
 
   useEffect(() => {
     if (!selectedPack) {
@@ -191,6 +231,15 @@ export function CreateRoundPanel({
       selectedOption,
     ],
   );
+  const nextPurchasableDifficulty = selectedPack
+    ? getNextPurchasableDifficulty(selectedPack)
+    : null;
+  const nextPurchasableCost =
+    selectedPack?.campaignCurrency && nextPurchasableDifficulty
+      ? selectedPack.campaignCurrency.packCosts[nextPurchasableDifficulty]
+      : null;
+  const selectedPackCurrency = selectedPack?.campaignCurrency ?? null;
+  const selectedPackIsLocked = Boolean(selectedPack && !selectedPack.isFree && !selectedPack.isUnlocked);
 
   const resetRecording = () => {
     setReversedAudioBlob(null);
@@ -223,6 +272,7 @@ export function CreateRoundPanel({
       const nextRound = await createRoundRecord({
         currentUserId,
         recipientId: friend.id,
+        packId: selectedPack?.id ?? null,
         correctPhrase: selectedOption.text,
         difficulty: selectedOption.displayDifficulty,
         originalAudioBlob: recorder.audioBlob,
@@ -234,6 +284,31 @@ export function CreateRoundPanel({
       setSaveError(error instanceof Error ? error.message : 'Unable to create the round.');
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handlePurchaseSelectedPack = async () => {
+    if (!selectedPack || !selectedPackCurrency || !nextPurchasableDifficulty) {
+      return;
+    }
+
+    setPackInfo(null);
+    setPacksError(null);
+    setIsPurchasingPack(true);
+
+    try {
+      const purchaseResult = await purchaseCampaignPackUnlock(selectedPack.id);
+      setResourceBalance(purchaseResult.resourceType, purchaseResult.currentResourceBalance);
+      setPackRefreshToken((currentValue) => currentValue + 1);
+      setPackInfo(
+        `${selectedPack.name}: ${nextPurchasableDifficulty} unlocked for ${purchaseResult.spentAmount} ${formatCampaignCurrencyLabel(selectedPackCurrency, purchaseResult.spentAmount)}.`,
+      );
+    } catch (error) {
+      setPacksError(
+        error instanceof Error ? error.message : 'Unable to unlock this campaign pack right now.',
+      );
+    } finally {
+      setIsPurchasingPack(false);
     }
   };
 
@@ -282,11 +357,7 @@ export function CreateRoundPanel({
                 value={selectedPackId || getDefaultPackId(packs)}
               >
                 {getWordPackOptions(packs).map((pack) => (
-                  <option
-                    disabled={!pack.isFree && !pack.isUnlocked}
-                    key={pack.id}
-                    value={pack.id}
-                  >
+                  <option key={pack.id} value={pack.id}>
                     {pack.name}{' '}
                     ({getPackAccessLabel(pack)})
                   </option>
@@ -305,14 +376,38 @@ export function CreateRoundPanel({
                 <p>
                   <strong>Access:</strong> {getPackAccessLabel(selectedPack)}
                 </p>
+                {selectedPackCurrency && nextPurchasableDifficulty && nextPurchasableCost ? (
+                  <p>
+                    <strong>Next unlock:</strong>{' '}
+                    {nextPurchasableDifficulty} for {nextPurchasableCost}{' '}
+                    {formatCampaignCurrencyLabel(selectedPackCurrency, nextPurchasableCost)}
+                  </p>
+                ) : null}
                 {selectedPack.description ? <p>{selectedPack.description}</p> : null}
+                {selectedPackCurrency && nextPurchasableDifficulty && nextPurchasableCost ? (
+                  <div className="button-row">
+                    <button
+                      className="button secondary"
+                      disabled={isPurchasingPack}
+                      onClick={() => {
+                        void handlePurchaseSelectedPack();
+                      }}
+                      type="button"
+                    >
+                      {isPurchasingPack
+                        ? 'Unlocking...'
+                        : `Unlock ${nextPurchasableDifficulty} for ${nextPurchasableCost} ${formatCampaignCurrencyLabel(selectedPackCurrency, nextPurchasableCost)}`}
+                    </button>
+                  </div>
+                ) : null}
               </div>
             ) : null}
 
             {!isLoadingPacks && !availableOptions.length ? (
               <div className="empty-state compact-empty">
-                No prompts are available in this pack yet. Unlock more of the campaign to open the
-                next difficulty tier.
+                {selectedPackIsLocked
+                  ? 'This campaign pack is locked. Purchase the next tier with campaign currency to use it in multiplayer.'
+                  : 'No prompts are available in the difficulties you have unlocked for this pack yet.'}
               </div>
             ) : null}
 
@@ -481,6 +576,7 @@ export function CreateRoundPanel({
       </div>
 
       <div className="stack">
+        {packInfo ? <div className="success-banner">{packInfo}</div> : null}
         {packsError ? <div className="error-banner">{packsError}</div> : null}
         {recorder.error ? <div className="error-banner">{recorder.error}</div> : null}
         {reverseError ? <div className="error-banner">{reverseError}</div> : null}

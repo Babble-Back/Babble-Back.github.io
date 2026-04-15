@@ -7,6 +7,11 @@ import { WaveformLoader } from '../../../components/WaveformLoader';
 import { WaveformPlayButton, type PlaybackStartKind } from '../../../components/WaveformPlayButton';
 import { ToggleRecordButton } from '../../../components/ToggleRecordButton';
 import { useCoins } from '../../resources/ResourceProvider';
+import {
+  formatCampaignCurrencyLabel,
+  listCampaignCatalog,
+  type CampaignCatalogEntry,
+} from '../../../lib/campaigns';
 import { claimReward, getRoundReward } from '../../../lib/roundRewards';
 import {
   consumeRoundListen,
@@ -139,7 +144,14 @@ export function PlayRoundPanel({
   onUpdateRound,
 }: PlayRoundPanelProps) {
   const recorder = useAudioRecorder({ preparedStreamIdleMs: 0 });
-  const { coins, isLoadingCoins, refreshCoins, setCoinBalance, setCoinPreview } = useCoins();
+  const {
+    coins,
+    isLoadingCoins,
+    refreshCoins,
+    setCoinBalance,
+    setCoinPreview,
+    setResourceBalance,
+  } = useCoins();
   const [guess, setGuess] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
@@ -151,6 +163,7 @@ export function PlayRoundPanel({
   const [isAwaitingRewardContinue, setIsAwaitingRewardContinue] = useState(false);
   const [isClaimingReward, setIsClaimingReward] = useState(false);
   const [roundReward, setRoundReward] = useState<RoundReward | null>(null);
+  const [campaignCatalog, setCampaignCatalog] = useState<CampaignCatalogEntry[]>([]);
   const [listenState, setListenState] = useState<RoundListenState | null>(null);
   const [isLoadingListenState, setIsLoadingListenState] = useState(false);
   const [isAuthorizingListenPlayback, setIsAuthorizingListenPlayback] = useState(false);
@@ -178,6 +191,30 @@ export function PlayRoundPanel({
     loadedRewardRoundIdRef.current = null;
     setCoinPreview(null);
   }, [currentUserId, round?.id, recorder.clearRecording, setCoinPreview]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadCampaigns = async () => {
+      try {
+        const nextCatalog = await listCampaignCatalog();
+
+        if (!cancelled) {
+          setCampaignCatalog(nextCatalog);
+        }
+      } catch (catalogError) {
+        if (!cancelled) {
+          console.warn('Unable to load campaign catalog for reward metadata.', catalogError);
+        }
+      }
+    };
+
+    void loadCampaigns();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const isRecipient = Boolean(round && round.recipientId === currentUserId);
   const hasAttempt = Boolean(
@@ -230,6 +267,31 @@ export function PlayRoundPanel({
   const isRewardBusy = isAnimatingReward || isClaimingReward;
   const hasPendingReward = Boolean(roundReward && !roundReward.claimed);
   const shouldShowRewardSequence = hasPendingReward && (isAnimatingReward || isAwaitingRewardContinue);
+  const rewardCampaignEntry = useMemo(() => {
+    if (!round?.packId && !roundReward?.campaignId && !roundReward?.bonusResourceType) {
+      return null;
+    }
+
+    return (
+      campaignCatalog.find((entry) => {
+        if (roundReward?.campaignId && entry.campaign.id === roundReward.campaignId) {
+          return true;
+        }
+
+        if (round?.packId && entry.campaign.rewardPackId === round.packId) {
+          return true;
+        }
+
+        return (
+          roundReward?.bonusResourceType !== null &&
+          roundReward?.bonusResourceType !== undefined &&
+          entry.currency?.resourceType === roundReward.bonusResourceType
+        );
+      }) ?? null
+    );
+  }, [campaignCatalog, round?.packId, roundReward?.bonusResourceType, roundReward?.campaignId]);
+  const rewardCampaignCurrency = rewardCampaignEntry?.currency ?? null;
+  const rewardCampaignIcon = rewardCampaignEntry?.assets.challenge_icon ?? null;
 
   const updateRewardPreview = useCallback(
     (nextDisplayedCoins: number) => {
@@ -239,7 +301,14 @@ export function PlayRoundPanel({
   );
 
   const settleClaimedReward = useCallback(
-    async (rewardToSettle: RoundReward, options: { claimedNow: boolean; currentBalance: number | null }) => {
+    async (
+      rewardToSettle: RoundReward,
+      options: {
+        claimedNow: boolean;
+        currentBalance: number | null;
+        bonusResourceCurrentBalance: number | null;
+      },
+    ) => {
       if (options.currentBalance !== null) {
         setCoinBalance(options.currentBalance);
       } else {
@@ -250,6 +319,16 @@ export function PlayRoundPanel({
         }
       }
 
+      if (
+        rewardToSettle.bonusResourceType &&
+        typeof options.bonusResourceCurrentBalance === 'number'
+      ) {
+        setResourceBalance(
+          rewardToSettle.bonusResourceType,
+          options.bonusResourceCurrentBalance,
+        );
+      }
+
       setRoundReward({ ...rewardToSettle, claimed: true });
       setIsAnimatingReward(false);
       setIsAwaitingRewardContinue(false);
@@ -257,12 +336,26 @@ export function PlayRoundPanel({
       setCoinPreview(null);
       clearRewardAnimationState(currentUserId, rewardToSettle.roundId);
       setInfo(
-        rewardToSettle.rewardAmount > 0 && options.claimedNow
-          ? `Reward claimed. +${rewardToSettle.rewardAmount} BB Coins.`
+        options.claimedNow
+          ? `Reward claimed. +${rewardToSettle.rewardAmount} BB Coins${
+              rewardToSettle.bonusResourceType && rewardCampaignCurrency
+                ? ` and ${rewardToSettle.bonusRewardAmount} ${formatCampaignCurrencyLabel(
+                    rewardCampaignCurrency,
+                    rewardToSettle.bonusRewardAmount,
+                  )}`
+                : ''
+            }.`
           : 'Reward already settled for this round.',
       );
     },
-    [currentUserId, refreshCoins, setCoinBalance, setCoinPreview],
+    [
+      currentUserId,
+      refreshCoins,
+      rewardCampaignCurrency,
+      setCoinBalance,
+      setCoinPreview,
+      setResourceBalance,
+    ],
   );
 
   const handleRewardAnimationComplete = useCallback(
@@ -294,6 +387,7 @@ export function PlayRoundPanel({
         await settleClaimedReward(claimResult.reward, {
           claimedNow: claimResult.claimedNow,
           currentBalance: claimResult.currentBalance,
+          bonusResourceCurrentBalance: claimResult.bonusResourceCurrentBalance,
         });
         return true;
       } catch (caughtError) {
@@ -767,6 +861,18 @@ export function PlayRoundPanel({
     round.status === 'complete' && roundReward ? (
       <RoundRewardSequence
         baseCoins={rewardBaseCoinsRef.current}
+        bonusReward={
+          roundReward.bonusResourceType && rewardCampaignCurrency && rewardCampaignIcon
+            ? {
+                amount: roundReward.bonusRewardAmount,
+                label: formatCampaignCurrencyLabel(
+                  rewardCampaignCurrency,
+                  roundReward.bonusRewardAmount,
+                ),
+                iconSrc: rewardCampaignIcon,
+              }
+            : null
+        }
         onAnimationComplete={() => handleRewardAnimationComplete(roundReward)}
         onDisplayedCoinsChange={updateRewardPreview}
         reward={roundReward}

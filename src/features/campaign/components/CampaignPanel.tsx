@@ -11,6 +11,8 @@ import {
   awardCampaignAttemptReward,
   completeCampaignChallenge,
   consumeCampaignAttempt,
+  formatCampaignCurrencyLabel,
+  getCampaignCurrencyDefinition,
   listCampaignLeaderboard,
   loadActiveCampaignState,
 } from '../../../lib/campaigns';
@@ -41,6 +43,9 @@ type CampaignAttemptState = CampaignState['attempts'][number];
 interface CampaignRewardReveal extends RewardSequenceReward {
   currentBalance: number;
   advanced: boolean;
+  currencyResourceType: string | null;
+  currencyRewardAmount: number;
+  currencyCurrentBalance: number | null;
 }
 
 const FLOATING_EGGS = [
@@ -232,7 +237,7 @@ export function CampaignPanel({ currentUserId }: CampaignPanelProps) {
     audioConstraints: CAMPAIGN_AUDIO_CONSTRAINTS,
     preparedStreamIdleMs: 0,
   });
-  const { coins, refreshCoins, setCoinBalance, setCoinPreview } = useCoins();
+  const { coins, refreshCoins, setCoinBalance, setCoinPreview, setResourceBalance } = useCoins();
   const [campaignState, setCampaignState] = useState<CampaignState | null>(null);
   const [stage, setStage] = useState<CampaignStage>('overview');
   const [stageChallengeId, setStageChallengeId] = useState<string | null>(null);
@@ -433,6 +438,7 @@ export function CampaignPanel({ currentUserId }: CampaignPanelProps) {
   const title = formatCampaignTitle(campaignState);
   const bannerImage = getAssetValue(campaignState, 'banner_image');
   const challengeIcon = getAssetValue(campaignState, 'challenge_icon');
+  const campaignCurrency = getCampaignCurrencyDefinition(campaignState?.campaign.config);
   const roadChallenges = useMemo(
     () => buildRoadWindow(challenges, currentIndex),
     [challenges, currentIndex],
@@ -650,6 +656,9 @@ export function CampaignPanel({ currentUserId }: CampaignPanelProps) {
         rewardAmount: number;
         currentBalance: number | null;
         advanced: boolean;
+        currencyResourceType: string | null;
+        currencyRewardAmount: number;
+        currencyCurrentBalance: number | null;
       };
 
       rewardBaseCoinsRef.current = coins;
@@ -666,6 +675,9 @@ export function CampaignPanel({ currentUserId }: CampaignPanelProps) {
           rewardAmount: completionResult.rewardAmount,
           currentBalance: completionResult.currentBalance,
           advanced: completionResult.advanced,
+          currencyResourceType: completionResult.currencyResourceType,
+          currencyRewardAmount: completionResult.currencyRewardAmount,
+          currencyCurrentBalance: completionResult.currencyCurrentBalance,
         };
 
         const refreshedCampaignState = await refreshCampaign();
@@ -685,6 +697,9 @@ export function CampaignPanel({ currentUserId }: CampaignPanelProps) {
           rewardAmount: attemptRewardResult.rewardAmount,
           currentBalance: attemptRewardResult.currentBalance,
           advanced: false,
+          currencyResourceType: attemptRewardResult.currencyResourceType,
+          currencyRewardAmount: attemptRewardResult.currencyRewardAmount,
+          currencyCurrentBalance: attemptRewardResult.currencyCurrentBalance,
         };
       }
 
@@ -710,17 +725,37 @@ export function CampaignPanel({ currentUserId }: CampaignPanelProps) {
         rewardAmount: rewardResult.rewardAmount,
         currentBalance: resolvedBalance,
         advanced: rewardResult.advanced,
+        currencyResourceType: rewardResult.currencyResourceType,
+        currencyRewardAmount: rewardResult.currencyRewardAmount,
+        currencyCurrentBalance: rewardResult.currencyCurrentBalance,
       });
       setIsAnimatingReward(true);
       setCoinBalance(resolvedBalance);
+      if (
+        rewardResult.currencyResourceType &&
+        typeof rewardResult.currencyCurrentBalance === 'number'
+      ) {
+        setResourceBalance(
+          rewardResult.currencyResourceType,
+          rewardResult.currencyCurrentBalance,
+        );
+      }
       updateRewardPreview(rewardBaseCoinsRef.current);
       setStage('reward');
 
       if (rewardResult.advanced) {
         setInfo(
           activeAttemptCharge?.charged
-            ? `Retry charged: -${activeAttemptCharge.cost} BB Coins. Challenge cleared for +${rewardResult.rewardAmount} BB Coins. The next egg is ready on the road.`
-            : `Challenge cleared for +${rewardResult.rewardAmount} BB Coins. The next egg is ready on the road.`,
+            ? `Retry charged: -${activeAttemptCharge.cost} BB Coins. Challenge cleared for +${rewardResult.rewardAmount} BB Coins${
+                rewardResult.currencyResourceType
+                  ? ` and ${rewardResult.currencyRewardAmount} ${formatCampaignCurrencyLabel(campaignCurrency, rewardResult.currencyRewardAmount)}`
+                  : ''
+              }. The next egg is ready on the road.`
+            : `Challenge cleared for +${rewardResult.rewardAmount} BB Coins${
+                rewardResult.currencyResourceType
+                  ? ` and ${rewardResult.currencyRewardAmount} ${formatCampaignCurrencyLabel(campaignCurrency, rewardResult.currencyRewardAmount)}`
+                  : ''
+              }. The next egg is ready on the road.`,
         );
       } else if (activeAttemptCharge?.charged) {
         setInfo(
@@ -748,7 +783,9 @@ export function CampaignPanel({ currentUserId }: CampaignPanelProps) {
     refreshCoins,
     setCoinBalance,
     setCoinPreview,
+    setResourceBalance,
     updateRewardPreview,
+    campaignCurrency,
   ]);
 
   useEffect(() => {
@@ -952,6 +989,18 @@ export function CampaignPanel({ currentUserId }: CampaignPanelProps) {
         <div className="campaign-step-stack reward-stage-step">
           <RoundRewardSequence
             baseCoins={rewardBaseCoinsRef.current}
+            bonusReward={
+              campaignReward.currencyResourceType && campaignCurrency && challengeIcon
+                ? {
+                    amount: campaignReward.currencyRewardAmount,
+                    label: formatCampaignCurrencyLabel(
+                      campaignCurrency,
+                      campaignReward.currencyRewardAmount,
+                    ),
+                    iconSrc: challengeIcon,
+                  }
+                : null
+            }
             onAnimationComplete={handleRewardAnimationComplete}
             onDisplayedCoinsChange={updateRewardPreview}
             reward={campaignReward}

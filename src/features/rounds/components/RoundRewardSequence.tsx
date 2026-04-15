@@ -6,6 +6,11 @@ import type { RewardSequenceReward } from '../types';
 interface RoundRewardSequenceProps {
   baseCoins: number;
   reward: RewardSequenceReward;
+  bonusReward?: {
+    amount: number;
+    label: string;
+    iconSrc: string;
+  } | null;
   onDisplayedCoinsChange: (amount: number) => void;
   onAnimationComplete?: () => void;
   startCompleted?: boolean;
@@ -139,6 +144,7 @@ function getTotalDurationMs(starCount: number) {
 export function RoundRewardSequence({
   baseCoins,
   reward,
+  bonusReward = null,
   onDisplayedCoinsChange,
   onAnimationComplete,
   startCompleted = false,
@@ -170,6 +176,9 @@ export function RoundRewardSequence({
     reward.rewardAmount === 0
       ? baseCoins
       : baseCoins + Math.round(reward.rewardAmount * easeOutCubic(burstProgress));
+  const displayedBonusAmount = bonusReward
+    ? Math.round(bonusReward.amount * easeOutCubic(burstProgress))
+    : 0;
   const starEntryProgresses = useMemo(
     () =>
       Array.from({ length: MAX_STARS }, (_, index) =>
@@ -400,24 +409,50 @@ export function RoundRewardSequence({
             {getDifficultyLabel(reward.difficulty)} x{difficultyMultiplierValue}
           </div>
 
-          <div
-            aria-label={`${displayedRewardCounter.toLocaleString()} BB Coins`}
-            className="reward-sequence-coins"
-            style={{
-              transform: `scale(${counterScale})`,
-            }}
-          >
-            <span className="reward-sequence-coin-icon-anchor" ref={coinBurstOriginRef}>
-              <img
-                alt=""
-                aria-hidden="true"
-                className="reward-sequence-coin-icon"
-                src={`${import.meta.env.BASE_URL}bbcoin.png`}
-              />
-            </span>
-            <strong className="reward-sequence-coin-value">
-              {Math.max(0, displayedRewardCounter).toLocaleString()}
-            </strong>
+          <div className="reward-sequence-reward-row">
+            <div
+              aria-label={`${displayedRewardCounter.toLocaleString()} BB Coins`}
+              className="reward-sequence-coins"
+              style={{
+                transform: `scale(${counterScale})`,
+              }}
+            >
+              <span className="reward-sequence-coin-icon-anchor" ref={coinBurstOriginRef}>
+                <img
+                  alt=""
+                  aria-hidden="true"
+                  className="reward-sequence-coin-icon"
+                  src={`${import.meta.env.BASE_URL}bbcoin.png`}
+                />
+              </span>
+              <strong className="reward-sequence-coin-value">
+                {Math.max(0, displayedRewardCounter).toLocaleString()}
+              </strong>
+            </div>
+
+            {bonusReward ? (
+              <div
+                aria-label={`${displayedBonusAmount.toLocaleString()} ${bonusReward.label}`}
+                className="reward-sequence-bonus"
+                style={{
+                  opacity: burstProgress === 0 && !startCompleted ? 0 : 1,
+                  transform: `scale(${0.94 + easeOutCubic(burstProgress) * 0.06})`,
+                }}
+              >
+                <span className="reward-sequence-bonus-icon-anchor">
+                  <img
+                    alt=""
+                    aria-hidden="true"
+                    className="reward-sequence-bonus-icon"
+                    src={bonusReward.iconSrc}
+                  />
+                </span>
+                <strong className="reward-sequence-bonus-value">
+                  {Math.max(0, startCompleted ? bonusReward.amount : displayedBonusAmount).toLocaleString()}
+                </strong>
+                <span className="reward-sequence-bonus-label">{bonusReward.label}</span>
+              </div>
+            ) : null}
           </div>
         </div>
 

@@ -10,7 +10,17 @@ export interface WordPack {
   unlockTier?: WordDifficulty | null;
   isUnlocked?: boolean;
   maxUnlockedDifficulty?: WordDifficulty | null;
+  campaignCurrency?: CampaignPackCurrency | null;
   createdAt: string;
+}
+
+export interface CampaignPackCurrency {
+  campaignId: string;
+  resourceType: string;
+  singularName: string;
+  pluralName: string;
+  iconUrl: string | null;
+  packCosts: Record<WordDifficulty, number>;
 }
 
 export interface WordEntry {
@@ -34,6 +44,21 @@ interface WordPackRow {
   is_free: boolean;
   unlock_tier: WordDifficulty | null;
   created_at: string;
+}
+
+interface CampaignRewardPackRow {
+  id: string;
+  reward_pack_id: string | null;
+  config: Record<string, unknown> | null;
+  start_date: string | null;
+  end_date: string | null;
+  is_active: boolean;
+}
+
+interface CampaignAssetRow {
+  campaign_id: string;
+  key: string;
+  value: string;
 }
 
 interface WordRow {
@@ -69,6 +94,24 @@ interface LegacyWordPackUnlockRow {
   unlocked_at: string;
 }
 
+interface PurchaseCampaignPackUnlockRow {
+  result_pack_id?: string;
+  result_campaign_id?: string;
+  result_resource_type?: string;
+  result_spent_amount?: number;
+  result_current_resource_balance?: number;
+  result_max_unlocked_difficulty?: WordDifficulty;
+}
+
+export interface PurchaseCampaignPackUnlockResult {
+  packId: string;
+  campaignId: string;
+  resourceType: string;
+  spentAmount: number;
+  currentResourceBalance: number;
+  maxUnlockedDifficulty: WordDifficulty;
+}
+
 interface CachedPayload<T> {
   timestamp: number;
   data: T;
@@ -79,6 +122,11 @@ const WORD_PACKS_CACHE_KEY = 'word_packs_cache';
 const WORDS_CACHE_PREFIX = 'word_pack_words_cache:';
 const WORD_PACK_UNLOCKS_CACHE_PREFIX = 'word_pack_unlocks_cache:';
 const DIFFICULTY_ORDER: WordDifficulty[] = ['easy', 'medium', 'hard'];
+const DEFAULT_PACK_UNLOCK_COSTS: Record<WordDifficulty, number> = {
+  easy: 25,
+  medium: 50,
+  hard: 150,
+};
 
 function requireSupabase() {
   if (!supabase) {
@@ -86,6 +134,33 @@ function requireSupabase() {
   }
 
   return supabase;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+
+  return value as Record<string, unknown>;
+}
+
+function readString(value: unknown) {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function readPositiveInteger(value: unknown, fallback: number) {
+  const numericValue =
+    typeof value === 'number'
+      ? value
+      : typeof value === 'string' && value.trim()
+        ? Number(value)
+        : NaN;
+
+  if (!Number.isFinite(numericValue) || numericValue <= 0) {
+    return fallback;
+  }
+
+  return Math.floor(numericValue);
 }
 
 function readCachedPayload<T>(key: string): T | null {
@@ -154,6 +229,19 @@ function mapWordPackRow(row: WordPackRow): WordPack {
   };
 }
 
+function mapPurchaseCampaignPackUnlockRow(
+  row: PurchaseCampaignPackUnlockRow,
+): PurchaseCampaignPackUnlockResult {
+  return {
+    packId: row.result_pack_id ?? '',
+    campaignId: row.result_campaign_id ?? '',
+    resourceType: row.result_resource_type ?? '',
+    spentAmount: row.result_spent_amount ?? 0,
+    currentResourceBalance: row.result_current_resource_balance ?? 0,
+    maxUnlockedDifficulty: row.result_max_unlocked_difficulty ?? 'easy',
+  };
+}
+
 function mapWordPackUnlockRow(row: WordPackUnlockRow): WordPackUnlock {
   return {
     userId: row.user_id,
@@ -174,6 +262,87 @@ function mapWordRow(row: WordRow): WordEntry {
     difficulty: row.difficulty,
     createdAt: row.created_at,
   };
+}
+
+function getCampaignPackCurrency(config: Record<string, unknown> | null, iconUrl: string | null) {
+  const currencyConfig = asRecord(config?.currency);
+  const resourceType = readString(currencyConfig?.resource_type);
+
+  if (!resourceType) {
+    return null;
+  }
+
+  const singularName = readString(currencyConfig?.singular_name) ?? resourceType;
+  const pluralName = readString(currencyConfig?.plural_name) ?? `${singularName}s`;
+  const packCosts = asRecord(currencyConfig?.pack_costs);
+
+  return {
+    resourceType,
+    singularName,
+    pluralName,
+    iconUrl,
+    packCosts: {
+      easy: readPositiveInteger(packCosts?.easy, DEFAULT_PACK_UNLOCK_COSTS.easy),
+      medium: readPositiveInteger(packCosts?.medium, DEFAULT_PACK_UNLOCK_COSTS.medium),
+      hard: readPositiveInteger(packCosts?.hard, DEFAULT_PACK_UNLOCK_COSTS.hard),
+    },
+  };
+}
+
+async function listCampaignRewardPackMetadata() {
+  const client = requireSupabase();
+  const [{ data: campaigns, error: campaignsError }, { data: assets, error: assetsError }] =
+    await Promise.all([
+      client
+        .from('campaigns')
+        .select('id, reward_pack_id, config, start_date, end_date, is_active')
+        .not('reward_pack_id', 'is', null)
+        .order('is_active', { ascending: false })
+        .order('end_date', { ascending: false, nullsFirst: false })
+        .order('start_date', { ascending: false, nullsFirst: false }),
+      client.from('campaign_assets').select('campaign_id, key, value').eq('key', 'challenge_icon'),
+    ]);
+
+  if (campaignsError) {
+    throw new Error(`Unable to load campaign pack metadata: ${campaignsError.message}`);
+  }
+
+  if (assetsError) {
+    throw new Error(`Unable to load campaign pack assets: ${assetsError.message}`);
+  }
+
+  const iconByCampaignId = ((assets as CampaignAssetRow[] | null) ?? []).reduce<
+    Record<string, string>
+  >((entries, asset) => {
+    entries[asset.campaign_id] = asset.value;
+    return entries;
+  }, {});
+
+  const metadataByPackId = new Map<string, CampaignPackCurrency>();
+
+  for (const campaign of (campaigns as CampaignRewardPackRow[] | null) ?? []) {
+    const rewardPackId = campaign.reward_pack_id?.trim();
+
+    if (!rewardPackId || metadataByPackId.has(rewardPackId)) {
+      continue;
+    }
+
+    const currency = getCampaignPackCurrency(
+      campaign.config ?? {},
+      iconByCampaignId[campaign.id] ?? null,
+    );
+
+    if (!currency) {
+      continue;
+    }
+
+    metadataByPackId.set(rewardPackId, {
+      campaignId: campaign.id,
+      ...currency,
+    });
+  }
+
+  return metadataByPackId;
 }
 
 function getDifficultyRank(difficulty: WordDifficulty | null | undefined) {
@@ -258,17 +427,23 @@ export async function listWordPacks(options?: {
   }
 
   const client = requireSupabase();
-  const { data, error } = await client
-    .from('word_packs')
-    .select('id, name, description, is_free, unlock_tier, created_at')
-    .order('created_at', { ascending: false })
-    .order('name', { ascending: true });
+  const [{ data, error }, campaignMetadata] = await Promise.all([
+    client
+      .from('word_packs')
+      .select('id, name, description, is_free, unlock_tier, created_at')
+      .order('created_at', { ascending: false })
+      .order('name', { ascending: true }),
+    listCampaignRewardPackMetadata(),
+  ]);
 
   if (error) {
     throw new Error(`Unable to load word packs: ${error.message}`);
   }
 
-  const packs = ((data as WordPackRow[] | null) ?? []).map(mapWordPackRow);
+  const packs = ((data as WordPackRow[] | null) ?? []).map((row) => ({
+    ...mapWordPackRow(row),
+    campaignCurrency: campaignMetadata.get(row.id) ?? null,
+  }));
 
   if (useCache && packs.length > 0) {
     writeCachedPayload(WORD_PACKS_CACHE_KEY, packs);
@@ -472,4 +647,32 @@ export async function loadSelectedWordPack(
     ...selectedPack,
     words,
   };
+}
+
+export async function purchaseCampaignPackUnlock(packId: string) {
+  const normalizedPackId = packId.trim();
+
+  if (!normalizedPackId) {
+    throw new Error('A pack id is required to unlock a campaign pack.');
+  }
+
+  const client = requireSupabase();
+  const { data, error } = await client.rpc('purchase_campaign_pack_unlock', {
+    purchase_pack_id: normalizedPackId,
+  });
+
+  if (error) {
+    throw new Error(`Unable to unlock the campaign pack: ${error.message}`);
+  }
+
+  const row = (Array.isArray(data) ? data[0] : data) as PurchaseCampaignPackUnlockRow | null;
+
+  if (!row) {
+    throw new Error('Unable to unlock the campaign pack.');
+  }
+
+  const currentUserId = await getCurrentUserId();
+  clearWordPackUnlockCache(currentUserId);
+
+  return mapPurchaseCampaignPackUnlockRow(row);
 }

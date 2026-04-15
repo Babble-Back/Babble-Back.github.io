@@ -1,1 +1,1 @@
-export { getCoins, getResourceAmount } from '../../lib/resources';
+export { getCoins, getResourceAmount, listResourceBalances } from '../../lib/resources';

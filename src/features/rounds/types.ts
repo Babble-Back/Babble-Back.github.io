@@ -8,6 +8,8 @@ export interface RewardSequenceReward {
   stars: RoundStarCount;
   difficulty: WordDifficulty;
   rewardAmount: number;
+  bonusResourceType?: string | null;
+  bonusRewardAmount?: number;
 }
 
 export interface FriendThreadStats {
@@ -30,6 +32,9 @@ export interface RoundReward extends RewardSequenceReward {
   userId: string;
   claimed: boolean;
   createdAt: string;
+  campaignId: string | null;
+  bonusResourceType: string | null;
+  bonusRewardAmount: number;
 }
 
 export interface RoundListenState {
@@ -52,6 +57,7 @@ export interface Round {
   recipientId: string;
   recipientEmail: string;
   recipientUsername: string;
+  packId: string | null;
   correctPhrase: string;
   difficulty: WordDifficulty;
   originalAudioBlob: Blob | null;
