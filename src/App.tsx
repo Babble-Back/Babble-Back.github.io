@@ -763,11 +763,10 @@ function App() {
   const showFullscreenLoader =
     isAuthLoading ||
     (Boolean(currentUserId) && (!hasLoadedInitialData || !hasResolvedInitialCampaignBanner) && !loadError);
-  const appShellClassName = showFullscreenLoader ? 'app-shell app-shell--immersive' : 'app-shell';
 
   return (
     <ResourceProvider currentUserId={currentUserId}>
-      <main className={appShellClassName}>
+      <main className="app-shell">
         {showSecureContextWarning ? (
           <div className="error-banner">
             This page is not running in a secure context. Microphone recording, service workers, and

@@ -33,8 +33,6 @@
   --shadow-strong: 0 24px 60px rgba(29, 35, 54, 0.16);
   --font-display: "Fraunces", "Georgia", serif;
   --font-body: "Manrope", "Avenir Next", "Segoe UI", sans-serif;
-  --safe-area-top: env(safe-area-inset-top, 0px);
-  --safe-area-bottom: env(safe-area-inset-bottom, 0px);
 }
 
 * {
@@ -55,6 +53,8 @@ body {
   isolation: isolate;
   margin: 0;
   min-height: 100dvh;
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
   background: linear-gradient(
     135deg,
     #00e5ff 0%,
@@ -102,9 +102,9 @@ body::after {
 #root {
   position: relative;
   z-index: 1;
-  width: 100%;
-  height: 100dvh;
-  min-height: 100dvh;
+  width: 100vw;
+  height: calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+  min-height: 100%;
   overflow: hidden;
 }
 
@@ -173,18 +173,12 @@ p {
   z-index: 0;
   width: min(1180px, calc(100vw - 24px));
   height: 100%;
-  min-height: 100dvh;
+  min-height: 100%;
   margin: 0 auto;
-  padding: max(16px, var(--safe-area-top)) 0 max(40px, calc(20px + var(--safe-area-bottom)));
+  padding: 16px 0 40px;
   overflow-x: hidden;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
-}
-
-.app-shell--immersive {
-  width: 100%;
-  padding-top: 0;
-  padding-bottom: 0;
 }
 
 .install-card,
@@ -255,7 +249,7 @@ p {
   min-height: 100dvh;
   display: grid;
   place-items: center;
-  padding: calc(24px + var(--safe-area-top)) 24px calc(24px + var(--safe-area-bottom));
+  padding: 24px;
 }
 
 .fullscreen-loader-content {
@@ -2967,7 +2961,7 @@ p {
 @media (max-width: 640px) {
   .app-shell {
     width: min(100vw - 16px, 1180px);
-    padding: max(12px, var(--safe-area-top)) 0 max(28px, calc(12px + var(--safe-area-bottom)));
+    padding: 12px 0 28px;
   }
 
   .hero-card,

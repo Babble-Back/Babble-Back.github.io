@@ -1,5 +1,6 @@
 import type { FriendRequest } from '../features/social/types';
 import type { Friend } from '../features/social/types';
+import { sendFriendRequestPushNotification } from './push';
 import { supabase, supabaseConfigError } from './supabase';
 
 interface FriendshipRow {
@@ -125,12 +126,29 @@ export async function listFriendRequests(
 
 export async function sendFriendRequestByUsername(recipientIdentifier: string) {
   const client = requireSupabase();
-  const { error } = await client.rpc('request_friendship', {
+  const { data, error } = await client.rpc('request_friendship', {
     recipient_identifier_input: recipientIdentifier.trim().toLowerCase(),
   });
 
   if (error) {
     throw new Error(`Unable to send the friend request: ${error.message}`);
+  }
+
+  const request = (Array.isArray(data) ? data[0] : data) as
+    | Pick<FriendRequestRow, 'recipient_id'>
+    | null;
+
+  if (!request?.recipient_id) {
+    return;
+  }
+
+  try {
+    await sendFriendRequestPushNotification(request.recipient_id);
+  } catch (pushError) {
+    console.warn(
+      'Unable to send push notification for the friend request. The request was created, but the recipient was not notified.',
+      pushError,
+    );
   }
 }
 

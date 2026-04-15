@@ -79,8 +79,8 @@ self.addEventListener('push', (event) => {
   const defaultUrl = getScopedUrl('./');
   const defaultIcon = getScopedUrl('icon-192.png');
   let data = {
-    title: 'Your turn!',
-    body: 'Your friend sent you a clip \uD83C\uDFA4',
+    title: 'BackTalk',
+    body: 'Open BackTalk to check your latest update.',
     icon: defaultIcon,
     badge: defaultIcon,
     url: defaultUrl,

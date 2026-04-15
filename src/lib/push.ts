@@ -16,6 +16,13 @@ export interface PushSyncResult {
   permission: NotificationPermission | 'unsupported';
 }
 
+type PushNotificationType = 'round_turn' | 'friend_request';
+
+interface SendPushFunctionRequest {
+  targetUserId: string;
+  notificationType?: PushNotificationType;
+}
+
 interface SendPushFunctionResponse {
   sent?: boolean;
   reason?: string;
@@ -144,7 +151,7 @@ function getFunctionsErrorMessage(
     return `Edge Function returned ${errorDetails.status} ${errorDetails.statusText}`.trim();
   }
 
-  return error.message || 'Unable to send the clip notification.';
+  return error.message || 'Unable to send the push notification.';
 }
 
 function requireSupabase() {
@@ -438,24 +445,36 @@ export async function syncPushNotifications(
   };
 }
 
-export async function sendClipSentPushNotification(targetUserId: string) {
+function getNotificationDebugLabel(notificationType: PushNotificationType) {
+  return notificationType === 'friend_request' ? 'friend request' : 'round turn';
+}
+
+async function sendPushNotification(
+  targetUserId: string,
+  notificationType: PushNotificationType,
+) {
   const client = requireSupabase();
   const {
     data: { session },
   } = await client.auth.getSession();
   const accessToken = session?.access_token ?? null;
+  const notificationLabel = getNotificationDebugLabel(notificationType);
 
   debugPush('Preparing push edge function auth context.', {
     hasAccessToken: Boolean(accessToken),
+    notificationType,
     sessionUserId: session?.user?.id ?? null,
     targetUserId,
   });
 
   if (!accessToken) {
-    throw new Error('Unable to send the clip notification: no active Supabase session.');
+    throw new Error(
+      `Unable to send the ${notificationLabel} notification: no active Supabase session.`,
+    );
   }
 
   debugPush('Invoking send-push-notification edge function.', {
+    notificationType,
     targetUserId,
   });
   const { data, error } = await client.functions.invoke<SendPushFunctionResponse>(
@@ -465,8 +484,9 @@ export async function sendClipSentPushNotification(targetUserId: string) {
         Authorization: `Bearer ${accessToken}`,
       },
       body: {
+        notificationType,
         targetUserId,
-      },
+      } as SendPushFunctionRequest,
     },
   );
 
@@ -475,6 +495,7 @@ export async function sendClipSentPushNotification(targetUserId: string) {
     debugPushError('send-push-notification edge function failed.', {
       error,
       errorDetails,
+      notificationType,
       targetUserId,
     });
     throw new Error(getFunctionsErrorMessage(error, errorDetails));
@@ -482,6 +503,7 @@ export async function sendClipSentPushNotification(targetUserId: string) {
 
   debugPush('send-push-notification edge function completed.', {
     data,
+    notificationType,
     targetUserId,
   });
 
@@ -490,12 +512,22 @@ export async function sendClipSentPushNotification(targetUserId: string) {
     const message = data?.error || `The push notification was not sent${reason}.`;
     debugPushError('send-push-notification edge function reported an unsent notification.', {
       data,
+      notificationType,
       targetUserId,
     });
     throw new Error(message);
   }
 
   debugPush('Push notification sent successfully.', {
+    notificationType,
     targetUserId,
   });
+}
+
+export async function sendClipSentPushNotification(targetUserId: string) {
+  await sendPushNotification(targetUserId, 'round_turn');
+}
+
+export async function sendFriendRequestPushNotification(targetUserId: string) {
+  await sendPushNotification(targetUserId, 'friend_request');
 }

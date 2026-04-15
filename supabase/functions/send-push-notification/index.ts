@@ -12,11 +12,21 @@ interface SendPushRequest {
   targetUserId?: string;
   target_user_id?: string;
   user_id?: string;
+  notificationType?: PushNotificationType;
+  notification_type?: PushNotificationType;
+  type?: PushNotificationType;
 }
+
+type PushNotificationType = 'round_turn' | 'friend_request';
 
 interface PushSubscriptionRow {
   id: string;
   subscription: webpush.PushSubscription;
+}
+
+interface PushNotificationContent {
+  title: string;
+  body: string;
 }
 
 function jsonResponse(body: unknown, status = 200) {
@@ -46,12 +56,38 @@ function getTargetUserId(body: SendPushRequest) {
   return body.targetUserId ?? body.target_user_id ?? body.user_id ?? null;
 }
 
+function getNotificationType(body: SendPushRequest): PushNotificationType {
+  const notificationType = body.notificationType ?? body.notification_type ?? body.type;
+  return notificationType === 'friend_request' ? 'friend_request' : 'round_turn';
+}
+
 function getSubscriptionEndpointHost(subscription: webpush.PushSubscription) {
   try {
     return new URL(subscription.endpoint).host;
   } catch {
     return null;
   }
+}
+
+function formatNotificationUsername(username: unknown) {
+  return typeof username === 'string' && username.trim() ? username.trim() : 'Someone';
+}
+
+function buildNotificationContent(
+  notificationType: PushNotificationType,
+  senderUsername: string,
+): PushNotificationContent {
+  if (notificationType === 'friend_request') {
+    return {
+      title: `${senderUsername} sent you a friend request`,
+      body: 'Open BackTalk to accept or ignore it.',
+    };
+  }
+
+  return {
+    title: `It is your turn with ${senderUsername}`,
+    body: 'Open BackTalk to listen and record your response.',
+  };
 }
 
 Deno.serve(async (request) => {
@@ -112,15 +148,36 @@ Deno.serve(async (request) => {
       userId: user.id,
     });
 
-    const targetUserId = getTargetUserId((await request.json()) as SendPushRequest);
+    const requestBody = (await request.json()) as SendPushRequest;
+    const targetUserId = getTargetUserId(requestBody);
+    const notificationType = getNotificationType(requestBody);
     if (!targetUserId || typeof targetUserId !== 'string') {
       return jsonResponse({ sent: false, error: 'targetUserId is required.' }, 400);
     }
     console.info('send-push-notification: parsed target user.', {
+      notificationType,
       targetUserId,
     });
 
     const adminClient = createClient(supabaseUrl, supabaseServiceRoleKey);
+    const { data: senderProfile, error: senderProfileError } = await adminClient
+      .from('profiles')
+      .select('username')
+      .eq('id', user.id)
+      .maybeSingle();
+
+    if (senderProfileError) {
+      throw new Error(`Unable to load the sender profile: ${senderProfileError.message}`);
+    }
+
+    const senderUsername = formatNotificationUsername(senderProfile?.username);
+    const notification = buildNotificationContent(notificationType, senderUsername);
+    console.info('send-push-notification: built notification content.', {
+      notificationType,
+      senderUsername,
+      targetUserId,
+    });
+
     const { data, error } = await adminClient
       .from('push_subscriptions')
       .select('id, subscription')
@@ -157,16 +214,14 @@ Deno.serve(async (request) => {
 
     webpush.setVapidDetails(vapidSubject, vapidPublicKey, vapidPrivateKey);
     console.info('send-push-notification: configured VAPID details.', {
+      notificationType,
       targetUserId,
     });
 
     try {
       await webpush.sendNotification(
         data.subscription,
-        JSON.stringify({
-          title: 'Your turn!',
-          body: 'Your friend sent you a clip \uD83C\uDFA4',
-        }),
+        JSON.stringify(notification),
       );
     } catch (error) {
       if (isStatusError(error) && (error.statusCode === 404 || error.statusCode === 410)) {
@@ -181,6 +236,7 @@ Deno.serve(async (request) => {
       throw error;
     }
     console.info('send-push-notification: notification sent.', {
+      notificationType,
       targetUserId,
     });
 
