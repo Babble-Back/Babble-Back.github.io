@@ -1,6 +1,8 @@
 import { createClient } from '@supabase/supabase-js';
 import { readFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
+import { DEFAULT_CAMPAIGN_SCORING_CONFIG } from '../src/features/campaign/lmPrior';
+import { withCampaignChallengeLmPriors } from './campaignLm';
 
 type Difficulty = 'easy' | 'medium' | 'hard';
 type CampaignMode = 'normal' | 'reverse_only';
@@ -53,6 +55,11 @@ interface PhraseBank {
 }
 
 const DEFAULT_UPLOAD_BUCKET = process.env.CAMPAIGN_ASSET_BUCKET?.trim() || '';
+const GENERATED_CAMPAIGN_SCORING_CONFIG = {
+  first_token_add_amount: DEFAULT_CAMPAIGN_SCORING_CONFIG.firstTokenAddAmount,
+  lm_weight: DEFAULT_CAMPAIGN_SCORING_CONFIG.lmWeight,
+  probability_epsilon: DEFAULT_CAMPAIGN_SCORING_CONFIG.probabilityEpsilon,
+};
 
 function getEnvValue(name: string) {
   const value = process.env[name]?.trim();
@@ -625,6 +632,7 @@ async function insertCampaignWithChildren(
     generated_by: 'scripts/generateCampaign.ts',
     theme: normalizedTheme,
     challenge_count: 100,
+    scoring: GENERATED_CAMPAIGN_SCORING_CONFIG,
     mode_distribution: {
       normal: 'all remaining challenges',
       reverse_only: ['challenge 33', 'every 10th medium', 'every 5th hard', 'final challenge'],
@@ -638,7 +646,7 @@ async function insertCampaignWithChildren(
       theme: normalizedTheme,
       start_date: startDate,
       end_date: endDate,
-      is_active: options.active ?? true,
+      is_active: false,
       config: campaignConfig,
     })
     .select('id, name, theme, start_date, end_date, is_active, config')
@@ -653,8 +661,11 @@ async function insertCampaignWithChildren(
     ...challenge,
     campaign_id: generatedCampaign.id,
   }));
+  const challengePlanWithLm = await withCampaignChallengeLmPriors(challengePlan);
 
-  const { error: challengeError } = await client.from('campaign_challenges').insert(challengePlan);
+  const { error: challengeError } = await client
+    .from('campaign_challenges')
+    .insert(challengePlanWithLm);
 
   if (challengeError) {
     await client.from('campaigns').delete().eq('id', generatedCampaign.id);
@@ -683,9 +694,28 @@ async function insertCampaignWithChildren(
     throw new Error(`Unable to insert campaign assets: ${assetError.message}`);
   }
 
+  const finalActiveState = options.active ?? true;
+
+  if (finalActiveState) {
+    const { error: activationError } = await client
+      .from('campaigns')
+      .update({ is_active: true })
+      .eq('id', generatedCampaign.id);
+
+    if (activationError) {
+      await client.from('campaign_assets').delete().eq('campaign_id', generatedCampaign.id);
+      await client.from('campaign_challenges').delete().eq('campaign_id', generatedCampaign.id);
+      await client.from('campaigns').delete().eq('id', generatedCampaign.id);
+      throw new Error(`Unable to activate the generated campaign: ${activationError.message}`);
+    }
+  }
+
   return {
-    campaign: generatedCampaign,
-    challenges: challengePlan,
+    campaign: {
+      ...generatedCampaign,
+      is_active: finalActiveState,
+    },
+    challenges: challengePlanWithLm,
     assets,
   };
 }

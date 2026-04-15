@@ -7,8 +7,13 @@ import {
 } from '../../lib/asr/whisperScoring';
 import {
   getCampaignStars,
-  normalizeCampaignWhisperScore,
+  normalizeCampaignLogScore,
 } from './scoring';
+import {
+  type CampaignPhraseLmPrior,
+  type CampaignScoringConfig,
+} from './lmPrior';
+import { combineCampaignLmScore } from './lmScoring';
 
 const DEV_MODE = import.meta.env.DEV;
 const SCORE_DEBUG_QUERY_KEY = 'campaignWhisperDebug';
@@ -39,14 +44,30 @@ function shouldLogCampaignWhisperScores() {
 }
 
 export interface CampaignAttemptScoreDebug {
+  alignedTokenCount: number;
+  alignmentMode: string;
   averageLogProb: number;
+  asrProbabilities: number[];
+  combinedRawScore: number;
+  finalScore: number;
+  firstTokenAddAmount: number;
+  lmModelName: string | null;
+  lmProbabilities: number[];
+  lmTokenIds: number[];
+  lmTokenTexts: string[];
+  lmWeight: number;
   normalizedCampaignScore: number;
-  rawPhraseLogLikelihood: number;
+  perTokenCombinedLogLikelihoodRatio: number[];
+  rawCombinedLogLikelihood: number;
+  rawWhisperLogLikelihood: number;
   stars: number;
   targetPhrase: string;
   targetStepScores: WhisperStepScore[];
-  targetTokenIds: number[];
   totalDecodeSteps: number;
+  usedLmPriors: boolean;
+  warnings: string[];
+  whisperTokenIds: number[];
+  whisperTokenTexts: string[];
 }
 
 export interface CampaignAttemptScoreResult {
@@ -63,14 +84,30 @@ function zeroScoreResult(
   return {
     debug: shouldLogCampaignWhisperScores()
       ? {
+          alignedTokenCount: 0,
+          alignmentMode: 'whisper_only',
           averageLogProb: Number.NEGATIVE_INFINITY,
+          asrProbabilities: [],
+          combinedRawScore: Number.NEGATIVE_INFINITY,
+          finalScore: 0,
+          firstTokenAddAmount: 0,
+          lmModelName: null,
+          lmProbabilities: [],
+          lmTokenIds: [],
+          lmTokenTexts: [],
+          lmWeight: 0,
           normalizedCampaignScore: 0,
-          rawPhraseLogLikelihood: Number.NEGATIVE_INFINITY,
+          perTokenCombinedLogLikelihoodRatio: [],
+          rawCombinedLogLikelihood: Number.NEGATIVE_INFINITY,
+          rawWhisperLogLikelihood: Number.NEGATIVE_INFINITY,
           stars: 0,
           targetPhrase,
           targetStepScores: [],
-          targetTokenIds: [],
           totalDecodeSteps: 0,
+          usedLmPriors: false,
+          warnings: [],
+          whisperTokenIds: [],
+          whisperTokenTexts: [],
         }
       : null,
     reversedAttemptBlob,
@@ -85,9 +122,13 @@ export async function warmCampaignAttemptScorer() {
 
 export async function scoreCampaignAttempt({
   attemptBlob,
+  lmPrior,
+  scoringConfig,
   targetPhrase,
 }: {
   attemptBlob: Blob;
+  lmPrior?: CampaignPhraseLmPrior | null;
+  scoringConfig?: Partial<CampaignScoringConfig> | null;
   targetPhrase: string;
 }): Promise<CampaignAttemptScoreResult> {
   let reversedAttemptBlob: Blob | null = null;
@@ -96,38 +137,67 @@ export async function scoreCampaignAttempt({
     reversedAttemptBlob = await reverseAudioBlob(attemptBlob);
     const processedAttemptAudio = await preprocessAudioBlob(reversedAttemptBlob);
     const whisperScore = await scoreWhisperPhraseAudio(processedAttemptAudio, targetPhrase);
-    const normalizedCampaignScore = normalizeCampaignWhisperScore(whisperScore.averageLogProb);
+    const combinedScore = combineCampaignLmScore(whisperScore, lmPrior, scoringConfig);
+    const normalizedCampaignScore = normalizeCampaignLogScore(combinedScore.averageLogProb);
     const stars = getCampaignStars(normalizedCampaignScore);
     const shouldLogDebug = shouldLogCampaignWhisperScores();
     const debug = shouldLogDebug
       ? {
-          averageLogProb: whisperScore.averageLogProb,
+          alignedTokenCount: combinedScore.debug.alignedTokenCount,
+          alignmentMode: combinedScore.debug.alignmentMode,
+          averageLogProb: combinedScore.averageLogProb,
+          asrProbabilities: combinedScore.debug.asrProbabilities,
+          combinedRawScore: combinedScore.debug.combinedRawScore,
+          finalScore: normalizedCampaignScore,
+          firstTokenAddAmount: combinedScore.debug.firstTokenAddAmount,
+          lmModelName: combinedScore.debug.lmModelName,
+          lmProbabilities: combinedScore.debug.lmProbabilities,
+          lmTokenIds: combinedScore.debug.lmTokenIds,
+          lmTokenTexts: combinedScore.debug.lmTokenTexts,
+          lmWeight: combinedScore.debug.lmWeight,
           normalizedCampaignScore,
-          rawPhraseLogLikelihood: whisperScore.rawLogLikelihood,
+          perTokenCombinedLogLikelihoodRatio:
+            combinedScore.debug.perTokenCombinedLogLikelihoodRatio,
+          rawCombinedLogLikelihood: combinedScore.rawLogLikelihood,
+          rawWhisperLogLikelihood: whisperScore.rawLogLikelihood,
           stars,
           targetPhrase,
           targetStepScores: whisperScore.targetStepScores,
-          targetTokenIds: whisperScore.targetTokenIds,
           totalDecodeSteps: whisperScore.decodeSteps,
+          usedLmPriors: combinedScore.debug.usedLmPriors,
+          warnings: combinedScore.debug.warnings,
+          whisperTokenIds: combinedScore.debug.whisperTokenIds,
+          whisperTokenTexts: combinedScore.debug.whisperTokenTexts,
         }
       : null;
 
     if (debug) {
       console.info('[CampaignWhisperScore]', debug);
       console.table(
-        debug.targetStepScores.map((stepScore) => ({
-          step: stepScore.step,
-          tokenId: stepScore.tokenId,
-          tokenText: stepScore.tokenText,
-          logProb: stepScore.logProb,
-          probability: stepScore.probability,
-          topCandidates: stepScore.topCandidates
-            .map(
-              (candidate) =>
-                `${candidate.tokenId}:${candidate.tokenText} (${candidate.logProb.toFixed(3)})`,
-            )
-            .join(' | '),
-        })),
+        combinedScore.debug.alignedTokens.map((tokenScore, index) => {
+          const stepScore = whisperScore.targetStepScores[tokenScore.whisperIndex];
+
+          return {
+            step: index,
+            whisperIndex: tokenScore.whisperIndex,
+            whisperTokenId: tokenScore.whisperTokenId,
+            whisperTokenText: tokenScore.whisperTokenText,
+            asrProbability: tokenScore.asrProbability,
+            lmIndex: tokenScore.lmIndex,
+            lmTokenId: tokenScore.lmTokenId,
+            lmTokenText: tokenScore.lmTokenText,
+            lmProbability: tokenScore.lmProbability,
+            combinedLogLikelihoodRatio: tokenScore.combinedLogLikelihoodRatio,
+            topCandidates: stepScore
+              ? stepScore.topCandidates
+                  .map(
+                    (candidate) =>
+                      `${candidate.tokenId}:${candidate.tokenText} (${candidate.logProb.toFixed(3)})`,
+                  )
+                  .join(' | ')
+              : '',
+          };
+        }),
       );
     }
 

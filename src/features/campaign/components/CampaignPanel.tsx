@@ -22,6 +22,7 @@ import {
   type CampaignAttemptScoreDebug,
   warmCampaignAttemptScorer,
 } from '../campaignAttemptScoring';
+import { readCampaignScoringConfig } from '../lmPrior';
 import { buildBackwardPhraseExample, formatDifficultyLabel } from '../scoring';
 
 interface CampaignPanelProps {
@@ -660,6 +661,16 @@ export function CampaignPanel({ currentUserId }: CampaignPanelProps) {
     try {
       const attemptScoreResult = await scoreCampaignAttempt({
         attemptBlob: attemptRecording,
+        lmPrior: {
+          modelName: activeChallenge.lmModelName,
+          ready: activeChallenge.lmReady,
+          tokenCount: activeChallenge.lmTokenCount,
+          tokenIds: activeChallenge.lmTokenIds,
+          tokenTexts: activeChallenge.lmTokenTexts,
+          tokenProbs: activeChallenge.lmTokenProbs,
+          tokenLogProbs: activeChallenge.lmTokenLogProbs,
+        },
+        scoringConfig: readCampaignScoringConfig(campaignState?.campaign.config),
         targetPhrase: activeChallenge.phrase,
       });
       const nextReversedAttempt = attemptScoreResult.reversedAttemptBlob;
@@ -800,6 +811,7 @@ export function CampaignPanel({ currentUserId }: CampaignPanelProps) {
     setCoinPreview,
     setResourceBalance,
     updateRewardPreview,
+    campaignState?.campaign.config,
     campaignCurrency,
   ]);
 
@@ -809,15 +821,32 @@ export function CampaignPanel({ currentUserId }: CampaignPanelProps) {
     }
 
     return (
-        <details className="result-box">
-          <summary>Whisper scorer debug</summary>
+      <details className="result-box">
+        <summary>Campaign scorer debug</summary>
         <p><strong>Average log prob:</strong> {scoreDebug.averageLogProb}</p>
-          <p><strong>Target phrase:</strong> {scoreDebug.targetPhrase}</p>
-          <p><strong>Target token ids:</strong> {scoreDebug.targetTokenIds.join(', ') || 'none'}</p>
-          <p><strong>Decode steps:</strong> {scoreDebug.totalDecodeSteps}</p>
-          <p><strong>Raw phrase log-likelihood:</strong> {scoreDebug.rawPhraseLogLikelihood}</p>
-          <p><strong>Normalized campaign score:</strong> {scoreDebug.normalizedCampaignScore}</p>
+        <p><strong>Target phrase:</strong> {scoreDebug.targetPhrase}</p>
+        <p><strong>Whisper token ids:</strong> {scoreDebug.whisperTokenIds.join(', ') || 'none'}</p>
+        <p><strong>Whisper token texts:</strong> {scoreDebug.whisperTokenTexts.join(' | ') || 'none'}</p>
+        <p><strong>LM token ids:</strong> {scoreDebug.lmTokenIds.join(', ') || 'none'}</p>
+        <p><strong>LM token texts:</strong> {scoreDebug.lmTokenTexts.join(' | ') || 'none'}</p>
+        <p><strong>Aligned token count:</strong> {scoreDebug.alignedTokenCount}</p>
+        <p><strong>Alignment mode:</strong> {scoreDebug.alignmentMode}</p>
+        <p><strong>Decode steps:</strong> {scoreDebug.totalDecodeSteps}</p>
+        <p><strong>ASR probs:</strong> {scoreDebug.asrProbabilities.join(', ') || 'none'}</p>
+        <p><strong>LM probs:</strong> {scoreDebug.lmProbabilities.join(', ') || 'none'}</p>
+        <p><strong>Per-token combined ratio:</strong> {scoreDebug.perTokenCombinedLogLikelihoodRatio.join(', ') || 'none'}</p>
+        <p><strong>Raw combined log-likelihood:</strong> {scoreDebug.rawCombinedLogLikelihood}</p>
+        <p><strong>Raw Whisper log-likelihood:</strong> {scoreDebug.rawWhisperLogLikelihood}</p>
+        <p><strong>Normalized campaign score:</strong> {scoreDebug.normalizedCampaignScore}</p>
+        <p><strong>Final score:</strong> {scoreDebug.finalScore}</p>
+        <p><strong>LM weight:</strong> {scoreDebug.lmWeight}</p>
+        <p><strong>First token add amount:</strong> {scoreDebug.firstTokenAddAmount}</p>
+        <p><strong>LM priors used:</strong> {scoreDebug.usedLmPriors ? 'yes' : 'no'}</p>
+        <p><strong>Warnings:</strong> {scoreDebug.warnings.join(' | ') || 'none'}</p>
         <p><strong>Stars:</strong> {scoreDebug.stars}</p>
+        <pre className="campaign-score-debug-json">
+          {JSON.stringify(scoreDebug, null, 2)}
+        </pre>
       </details>
     );
   };

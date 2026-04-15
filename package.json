@@ -9,6 +9,7 @@
     "build": "npm run update:sw-version && tsc -b && vite build",
     "generate:pack": "tsx scripts/generatePack.ts",
     "generate:campaign": "tsx scripts/generateCampaign.ts",
+    "backfill:campaign-lm": "tsx scripts/backfillCampaignLmPriors.ts",
     "seed:easter-campaign": "tsx scripts/seedEasterCampaign.ts",
     "preview": "vite preview --host 0.0.0.0 --strictPort"
   },

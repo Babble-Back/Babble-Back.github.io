@@ -1,11 +1,13 @@
 import { createClient } from '@supabase/supabase-js';
 import { readFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
+import { DEFAULT_CAMPAIGN_SCORING_CONFIG } from '../src/features/campaign/lmPrior';
 import {
   cleanPackTexts,
   computeDifficulty,
   normalizePackText,
 } from '../src/utils/difficulty';
+import { withCampaignChallengeLmPriors } from './campaignLm';
 
 type Difficulty = 'easy' | 'medium' | 'hard';
 type CampaignMode = 'normal' | 'reverse_only';
@@ -60,6 +62,11 @@ const CAMPAIGN_PACK_UNLOCK_COSTS = {
   easy: 25,
   medium: 50,
   hard: 150,
+} as const;
+const CAMPAIGN_SCORING_CONFIG = {
+  first_token_add_amount: DEFAULT_CAMPAIGN_SCORING_CONFIG.firstTokenAddAmount,
+  lm_weight: DEFAULT_CAMPAIGN_SCORING_CONFIG.lmWeight,
+  probability_epsilon: DEFAULT_CAMPAIGN_SCORING_CONFIG.probabilityEpsilon,
 } as const;
 const CAMPAIGN_SELECTION_COUNTS = {
   easy: 33,
@@ -779,7 +786,7 @@ async function upsertCampaign(
         theme: CAMPAIGN_THEME,
         start_date: START_DATE,
         end_date: END_DATE,
-        is_active: true,
+        is_active: false,
         reward_pack_id: packId,
         easy_unlock_completed_count: EASY_PACK_UNLOCK_COUNT,
         medium_unlock_completed_count: MEDIUM_PACK_UNLOCK_COUNT,
@@ -797,6 +804,7 @@ async function upsertCampaign(
             plural_name: CAMPAIGN_CURRENCY_PLURAL_NAME,
             pack_costs: CAMPAIGN_PACK_UNLOCK_COSTS,
           },
+          scoring: CAMPAIGN_SCORING_CONFIG,
           easy_word_count: 100,
           medium_word_count: 100,
           hard_word_count: 100,
@@ -837,7 +845,7 @@ async function upsertCampaign(
       theme: CAMPAIGN_THEME,
       start_date: START_DATE,
       end_date: END_DATE,
-      is_active: true,
+      is_active: false,
       reward_pack_id: packId,
       easy_unlock_completed_count: EASY_PACK_UNLOCK_COUNT,
       medium_unlock_completed_count: MEDIUM_PACK_UNLOCK_COUNT,
@@ -855,6 +863,7 @@ async function upsertCampaign(
           plural_name: CAMPAIGN_CURRENCY_PLURAL_NAME,
           pack_costs: CAMPAIGN_PACK_UNLOCK_COSTS,
         },
+        scoring: CAMPAIGN_SCORING_CONFIG,
         easy_word_count: 100,
         medium_word_count: 100,
         hard_word_count: 100,
@@ -911,7 +920,9 @@ async function seedEasterCampaign() {
   }
 
   const campaignId = await upsertCampaign(client, packId);
-  const challengeRows = buildChallengePlan(campaignId, easyWords, mediumWords, hardWords);
+  const challengeRows = await withCampaignChallengeLmPriors(
+    buildChallengePlan(campaignId, easyWords, mediumWords, hardWords),
+  );
   const assetRows: CampaignAssetRow[] = [
     { campaign_id: campaignId, key: 'title', value: CAMPAIGN_DISPLAY_TITLE },
     { campaign_id: campaignId, key: 'subtitle', value: CAMPAIGN_SUBTITLE },
@@ -929,6 +940,15 @@ async function seedEasterCampaign() {
 
   if (insertAssetsError) {
     throw new Error(`Unable to insert Easter campaign assets: ${insertAssetsError.message}`);
+  }
+
+  const { error: activateCampaignError } = await client
+    .from('campaigns')
+    .update({ is_active: true })
+    .eq('id', campaignId);
+
+  if (activateCampaignError) {
+    throw new Error(`Unable to activate the Easter campaign: ${activateCampaignError.message}`);
   }
 
   const { error: deactivateError } = await client

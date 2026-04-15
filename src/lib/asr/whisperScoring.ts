@@ -9,6 +9,7 @@ import {
   TARGET_SAMPLE_RATE,
 } from './preprocess';
 import { loadWhisperModel } from './whisperModel';
+import { toCampaignPhraseScoringText } from '../../features/campaign/lmPrior';
 
 const ZERO_SCORE = Number.NEGATIVE_INFINITY;
 const MAX_GENERATED_TOKENS = 48;
@@ -75,17 +76,8 @@ function buildGenerationConfig(maxNewTokens: number) {
   };
 }
 
-function normalizePhraseText(text: string) {
-  return text
-    .trim()
-    .normalize('NFKC')
-    .replace(/[\u2018\u2019\u201B\u2032\u0060]/g, "'")
-    .replace(/\s+/g, ' ');
-}
-
 function toWhisperScoringText(text: string) {
-  const normalized = normalizePhraseText(text);
-  return normalized ? ` ${normalized}` : '';
+  return toCampaignPhraseScoringText(text);
 }
 
 function logProbabilityForToken(logits: Float32Array, tokenId: number) {

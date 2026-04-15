@@ -3,7 +3,9 @@ import { clearWordPackUnlockCache } from './wordPacks';
 import type { WordDifficulty } from '../utils/difficulty';
 
 const MAX_CACHE_AGE_MS = 1000 * 60 * 10;
-const ACTIVE_CAMPAIGN_STATE_CACHE_PREFIX = 'active_campaign_state_cache:';
+const ACTIVE_CAMPAIGN_STATE_CACHE_VERSION = 'v2';
+const ACTIVE_CAMPAIGN_STATE_CACHE_PREFIX = `active_campaign_state_cache:${ACTIVE_CAMPAIGN_STATE_CACHE_VERSION}:`;
+const LEGACY_ACTIVE_CAMPAIGN_STATE_CACHE_PREFIX = 'active_campaign_state_cache:';
 const CAMPAIGN_RETRY_COST = 5;
 const DEFAULT_PACK_UNLOCK_COSTS: Record<WordDifficulty, number> = {
   easy: 25,
@@ -46,6 +48,13 @@ export interface CampaignChallenge {
   difficulty: CampaignChallengeDifficulty;
   mode: CampaignChallengeMode;
   createdAt: string;
+  lmModelName: string | null;
+  lmTokenIds: number[];
+  lmTokenTexts: string[];
+  lmTokenProbs: number[];
+  lmTokenLogProbs: number[];
+  lmTokenCount: number;
+  lmReady: boolean;
 }
 
 export interface CampaignProgress {
@@ -140,6 +149,13 @@ interface CampaignChallengeRow {
   difficulty: CampaignChallengeDifficulty;
   mode: CampaignChallengeMode;
   created_at: string;
+  lm_model_name: string | null;
+  lm_token_ids: unknown;
+  lm_token_texts: unknown;
+  lm_token_probs: unknown;
+  lm_token_log_probs: unknown;
+  lm_token_count: number | null;
+  lm_ready: boolean | null;
 }
 
 interface CampaignAttemptRow {
@@ -250,6 +266,35 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 
 function readString(value: unknown) {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function readStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.filter((item): item is string => typeof item === 'string');
+}
+
+function readNumberArray(value: unknown): number[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.flatMap((item) => {
+    const numericValue =
+      typeof item === 'number'
+        ? item
+        : typeof item === 'string' && item.trim()
+          ? Number(item)
+          : NaN;
+
+    return Number.isFinite(numericValue) ? [numericValue] : [];
+  });
+}
+
+function readBoolean(value: unknown, fallback = false) {
+  return typeof value === 'boolean' ? value : fallback;
 }
 
 function readPositiveInteger(value: unknown, fallback: number) {
@@ -386,6 +431,7 @@ function clearActiveCampaignStateCache(userId?: string | null) {
   }
 
   window.localStorage.removeItem(`${ACTIVE_CAMPAIGN_STATE_CACHE_PREFIX}${normalizedUserId}`);
+  window.localStorage.removeItem(`${LEGACY_ACTIVE_CAMPAIGN_STATE_CACHE_PREFIX}${normalizedUserId}`);
 }
 
 export function clearActiveCampaignStateLocalCache(userId?: string | null) {
@@ -477,6 +523,13 @@ function mapChallengeRow(row: CampaignChallengeRow): CampaignChallenge {
     difficulty: row.difficulty,
     mode: row.mode,
     createdAt: row.created_at,
+    lmModelName: readString(row.lm_model_name),
+    lmTokenIds: readNumberArray(row.lm_token_ids),
+    lmTokenTexts: readStringArray(row.lm_token_texts),
+    lmTokenProbs: readNumberArray(row.lm_token_probs),
+    lmTokenLogProbs: readNumberArray(row.lm_token_log_probs),
+    lmTokenCount: readPositiveInteger(row.lm_token_count, 0),
+    lmReady: readBoolean(row.lm_ready, false),
   };
 }
 

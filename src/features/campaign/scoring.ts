@@ -33,8 +33,12 @@ function probabilityFromAverageLogProb(value: number | null | undefined) {
   return Math.exp(Math.max(MIN_LOG_PROBABILITY, Math.min(0, value)));
 }
 
-export function normalizeCampaignWhisperScore(averageLogProb: number) {
+export function normalizeCampaignLogScore(averageLogProb: number) {
   return clampScore(probabilityFromAverageLogProb(averageLogProb));
+}
+
+export function normalizeCampaignWhisperScore(averageLogProb: number) {
+  return normalizeCampaignLogScore(averageLogProb);
 }
 
 export function formatDifficultyLabel(difficulty: WordDifficulty) {
