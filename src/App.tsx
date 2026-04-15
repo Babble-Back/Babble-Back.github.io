@@ -5,10 +5,9 @@ import { WaveformLoader } from './components/WaveformLoader';
 import { AuthPanel } from './features/auth/components/AuthPanel';
 import { CampaignPanel } from './features/campaign/components/CampaignPanel';
 import { CreateRoundPanel } from './features/rounds/components/CreateRoundPanel';
-import { HomePanel } from './features/rounds/components/HomePanel';
+import { HomePanel, type HomeTableRow } from './features/rounds/components/HomePanel';
 import { PlayRoundPanel } from './features/rounds/components/PlayRoundPanel';
 import type { ArchiveCompletedRoundSummary, Round } from './features/rounds/types';
-import { FriendsPanel } from './features/social/components/FriendsPanel';
 import type { Friend, FriendRequest } from './features/social/types';
 import type { AppProfile } from './lib/auth';
 import {
@@ -29,7 +28,7 @@ import { supabaseConfigError } from './lib/supabase';
 import { InstallAppPrompt } from './pwa/InstallAppPrompt';
 import { CoinDisplay, ResourceProvider } from './features/resources/ResourceProvider';
 
-type View = 'home' | 'thread' | 'friends';
+type View = 'home' | 'thread';
 type AppPath = '/' | '/campaign';
 interface AppRoute {
   appPath: AppPath;
@@ -43,14 +42,6 @@ function createHomeRoute(): AppRoute {
   return {
     appPath: '/',
     view: 'home',
-    friendId: null,
-  };
-}
-
-function createFriendsRoute(): AppRoute {
-  return {
-    appPath: '/',
-    view: 'friends',
     friendId: null,
   };
 }
@@ -119,10 +110,6 @@ function getAppRoute(): AppRoute {
   const searchParams = new URLSearchParams(window.location.search);
   const requestedView = searchParams.get('view');
 
-  if (requestedView === 'friends') {
-    return createFriendsRoute();
-  }
-
   if (requestedView === 'thread') {
     const friendId = searchParams.get('friend')?.trim() || null;
     if (friendId) {
@@ -142,9 +129,7 @@ function buildAppRouteUrl(route: AppRoute) {
   }
 
   const searchParams = new URLSearchParams();
-  if (route.view === 'friends') {
-    searchParams.set('view', 'friends');
-  } else if (route.view === 'thread' && route.friendId) {
+  if (route.view === 'thread' && route.friendId) {
     searchParams.set('view', 'thread');
     searchParams.set('friend', route.friendId);
   }
@@ -757,10 +742,6 @@ function App() {
     navigateToRoute(friendId ? createThreadRoute(friendId) : createHomeRoute());
   };
 
-  const handleOpenFriends = () => {
-    navigateToRoute(createFriendsRoute());
-  };
-
   const handleOpenHome = () => {
     navigateToRoute(createHomeRoute());
   };
@@ -821,32 +802,51 @@ function App() {
       setSignOutError(error instanceof Error ? error.message : 'Unable to sign out.');
     }
   };
+  const homeRows = useMemo(() => {
+    type SortableHomeTableRow = HomeTableRow & { sortAt: string };
 
+    const pendingRequestUserIds = new Set(requests.map((request) => request.otherUserId));
 
+    const threadRows: SortableHomeTableRow[] = threadSummaries
+      .filter((thread) => !pendingRequestUserIds.has(thread.friend.id))
+      .map((thread) => {
+        const isNewFriendWithoutRounds = thread.roundCount === 0;
+        const isYourTurn = isCurrentUserTurn(thread, currentUserId);
+        const shouldStartGame = isNewFriendWithoutRounds && thread.canCurrentUserStart;
 
-  const homeFriendRows = useMemo(
-    () =>
-      threadSummaries
-        .filter((thread) => thread.roundCount > 0)
-        .map((thread) => ({
+        return {
           id: thread.friend.id,
           username: thread.friend.username,
           averageStars: thread.averageStars,
-          isYourTurn: isCurrentUserTurn(thread, currentUserId),
-        })),
-    [currentUserId, threadSummaries],
-  );
+          actionKind: shouldStartGame ? 'start_game' : 'open_friend',
+          actionLabel: shouldStartGame ? 'Start Game' : isYourTurn ? 'Take Turn' : 'Their Turn',
+          actionTone: shouldStartGame || isYourTurn ? 'take-turn' : 'their-turn',
+          friendId: thread.friend.id,
+          sortAt: thread.lastActiveAt ?? thread.friend.createdAt,
+        };
+      });
 
-  const createGameOptions = useMemo(
-    () =>
-      threadSummaries
-        .filter((thread) => thread.roundCount === 0 && thread.canCurrentUserStart)
-        .map((thread) => ({
-          id: thread.friend.id,
-          username: thread.friend.username,
-        })),
-    [threadSummaries],
-  );
+    const requestRows: SortableHomeTableRow[] = requests.map((request) => ({
+      id: `request-${request.id}`,
+      username: request.otherUserUsername,
+      averageStars: null,
+      actionKind: 'pending_request',
+      actionLabel: 'Pending Friend Request',
+      actionTone: request.direction === 'incoming' ? 'take-turn' : 'their-turn',
+      requestId: request.id,
+      requestDirection: request.direction,
+      sortAt: request.createdAt,
+    }));
+
+    return [...requestRows, ...threadRows]
+      .sort((left, right) => {
+        const leftDate = new Date(left.sortAt).getTime();
+        const rightDate = new Date(right.sortAt).getTime();
+
+        return rightDate - leftDate || left.username.localeCompare(right.username);
+      })
+      .map(({ sortAt: _sortAt, ...row }) => row);
+  }, [currentUserId, requests, threadSummaries]);
 
   const showFullscreenLoader =
     isAuthLoading ||
@@ -924,9 +924,6 @@ function App() {
                     <DrawerButton active={appPath === '/campaign'} onClick={handleOpenCampaign}>
                       Campaign
                     </DrawerButton>
-                    <DrawerButton active={view === 'friends'} onClick={handleOpenFriends}>
-                      Friends
-                    </DrawerButton>
                     <DrawerButton
                       onClick={() => {
                         void handleSignOut();
@@ -950,17 +947,12 @@ function App() {
               {appPath === '/' && view === 'home' ? (
                 <HomePanel
                   campaignBannerImage={campaignBannerImage}
-                  createGameOptions={createGameOptions}
-                  friends={homeFriendRows}
+                  rows={homeRows}
                   onCreateGame={handleCreateGame}
                   onOpenCampaign={handleOpenCampaign}
                   onOpenFriend={handleSelectFriend}
-                  onOpenFriends={handleOpenFriends}
                   onRefresh={handleHomeRefresh}
                 />
-              ) : null}
-              {appPath === '/' && view === 'friends' ? (
-                <FriendsPanel friends={friends} onRefresh={refreshAppData} requests={requests} />
               ) : null}
               {appPath === '/' && view === 'thread' && profile && selectedThread?.displayRound && !isComposingNextRound ? (
                 <PlayRoundPanel
