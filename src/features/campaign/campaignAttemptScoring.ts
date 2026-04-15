@@ -11,6 +11,32 @@ import {
 } from './scoring';
 
 const DEV_MODE = import.meta.env.DEV;
+const SCORE_DEBUG_QUERY_KEY = 'campaignWhisperDebug';
+const SCORE_DEBUG_STORAGE_KEY = 'campaign-whisper-debug';
+
+function shouldLogCampaignWhisperScores() {
+  if (DEV_MODE) {
+    return true;
+  }
+
+  if (typeof window === 'undefined') {
+    return false;
+  }
+
+  const searchParams = new URLSearchParams(window.location.search);
+  const queryOverride = searchParams.get(SCORE_DEBUG_QUERY_KEY);
+
+  if (queryOverride === '1' || queryOverride === 'true') {
+    return true;
+  }
+
+  try {
+    const storageOverride = window.localStorage.getItem(SCORE_DEBUG_STORAGE_KEY);
+    return storageOverride === '1' || storageOverride === 'true';
+  } catch {
+    return false;
+  }
+}
 
 export interface CampaignAttemptScoreDebug {
   generatedSequence: string;
@@ -79,7 +105,8 @@ export async function scoreCampaignAttempt({
       generatedAverageLogProb: whisperScore.generatedAverageLogProb,
     });
     const stars = getCampaignStars(normalizedCampaignScore);
-    const debug = DEV_MODE
+    const shouldLogDebug = shouldLogCampaignWhisperScores();
+    const debug = shouldLogDebug
       ? {
           generatedSequence: whisperScore.generatedText,
           generatedStepScores: whisperScore.generatedStepScores,
