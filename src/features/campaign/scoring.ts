@@ -33,26 +33,8 @@ function probabilityFromAverageLogProb(value: number | null | undefined) {
   return Math.exp(Math.max(MIN_LOG_PROBABILITY, Math.min(0, value)));
 }
 
-export function normalizeCampaignWhisperScore({
-  averageLogProb,
-  generatedAverageLogProb,
-}: {
-  averageLogProb: number;
-  generatedAverageLogProb: number | null;
-}) {
-  const phraseConfidence = probabilityFromAverageLogProb(averageLogProb);
-
-  if (!(phraseConfidence > 0)) {
-    return 0;
-  }
-
-  const greedyConfidence = probabilityFromAverageLogProb(generatedAverageLogProb);
-  const relativeConfidence =
-    greedyConfidence > 0
-      ? clampScore(phraseConfidence / greedyConfidence)
-      : phraseConfidence;
-
-  return clampScore(phraseConfidence * 0.4 + relativeConfidence * 0.6);
+export function normalizeCampaignWhisperScore(averageLogProb: number) {
+  return clampScore(probabilityFromAverageLogProb(averageLogProb));
 }
 
 export function formatDifficultyLabel(difficulty: WordDifficulty) {

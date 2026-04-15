@@ -35,10 +35,6 @@ export interface WhisperStepScore {
 export interface WhisperPhraseScoreDetails {
   averageLogProb: number;
   decodeSteps: number;
-  generatedAverageLogProb: number | null;
-  generatedSequenceTokenIds: number[];
-  generatedStepScores: WhisperStepScore[];
-  generatedText: string;
   rawLogLikelihood: number;
   targetTokenIds: number[];
   targetStepScores: WhisperStepScore[];
@@ -90,22 +86,6 @@ function normalizePhraseText(text: string) {
 function toWhisperScoringText(text: string) {
   const normalized = normalizePhraseText(text);
   return normalized ? ` ${normalized}` : '';
-}
-
-function getTokenIdsFromTensor(value: unknown): number[] {
-  if (!value || typeof value !== 'object' || !('data' in value) || !('dims' in value)) {
-    return [];
-  }
-
-  const tensor = value as Tensor;
-  const data = tensor.data as ArrayLike<number | bigint>;
-  const ids = new Array<number>(data.length);
-
-  for (let index = 0; index < data.length; index += 1) {
-    ids[index] = Number(data[index] ?? 0);
-  }
-
-  return ids;
 }
 
 function logProbabilityForToken(logits: Float32Array, tokenId: number) {
@@ -253,47 +233,6 @@ async function getPromptTokenIds() {
   return whisperModel._retrieve_init_tokens(generationConfig);
 }
 
-async function decodeGeneratedText(tokenIds: number[]) {
-  const { tokenizer } = await loadWhisperModel();
-  const decoded = tokenizer.batch_decode([tokenIds], {
-    skip_special_tokens: true,
-  });
-
-  return decoded[0]?.trim() ?? '';
-}
-
-async function runGreedyGeneration(inputFeatures: Tensor, promptTokenIds: number[]) {
-  const { model } = await loadWhisperModel();
-  const capture = new CaptureLogitsProcessor();
-  const logitsProcessor = new LogitsProcessorList();
-  logitsProcessor.push(capture);
-
-  const output = (await model.generate({
-    decoder_input_ids: promptTokenIds,
-    inputs: inputFeatures,
-    logits_processor: logitsProcessor,
-    ...buildGenerationConfig(MAX_GENERATED_TOKENS),
-  })) as { sequences?: Tensor };
-  const fullSequence = getTokenIdsFromTensor(output.sequences);
-  const generatedSequenceTokenIds = fullSequence.slice(promptTokenIds.length);
-  const generatedLogProbs = generatedSequenceTokenIds
-    .slice(0, capture.rows.length)
-    .map((tokenId, index) => logProbabilityForToken(capture.rows[index]!, tokenId));
-  const generatedStepScores = await Promise.all(
-    generatedSequenceTokenIds
-      .slice(0, capture.rows.length)
-      .map((tokenId, index) => buildStepScore(index, tokenId, capture.rows[index]!)),
-  );
-
-  return {
-    decodeSteps: capture.rows.length,
-    generatedAverageLogProb: averageLogProbability(generatedLogProbs),
-    generatedSequenceTokenIds,
-    generatedStepScores,
-    generatedText: await decodeGeneratedText(fullSequence),
-  };
-}
-
 async function scoreTargetTokensWithGeneration(
   inputFeatures: Tensor,
   promptTokenIds: number[],
@@ -355,10 +294,6 @@ export async function scoreWhisperPhraseAudio(
     return {
       averageLogProb: ZERO_SCORE,
       decodeSteps: 0,
-      generatedAverageLogProb: null,
-      generatedSequenceTokenIds: [],
-      generatedStepScores: [],
-      generatedText: '',
       rawLogLikelihood: ZERO_SCORE,
       targetTokenIds: [],
       targetStepScores: [],
@@ -378,28 +313,21 @@ export async function scoreWhisperPhraseAudio(
     return {
       averageLogProb: ZERO_SCORE,
       decodeSteps: 0,
-      generatedAverageLogProb: null,
-      generatedSequenceTokenIds: [],
-      generatedStepScores: [],
-      generatedText: '',
       rawLogLikelihood: ZERO_SCORE,
       targetTokenIds: [],
       targetStepScores: [],
     };
   }
 
-  const [generated, targetScore] = await Promise.all([
-    runGreedyGeneration(inputFeatures, promptTokenIds),
-    scoreTargetTokensWithGeneration(inputFeatures, promptTokenIds, targetTokenIds),
-  ]);
+  const targetScore = await scoreTargetTokensWithGeneration(
+    inputFeatures,
+    promptTokenIds,
+    targetTokenIds,
+  );
 
   return {
     averageLogProb: targetScore.averageLogProb,
-    decodeSteps: generated.decodeSteps,
-    generatedAverageLogProb: generated.generatedAverageLogProb,
-    generatedSequenceTokenIds: generated.generatedSequenceTokenIds,
-    generatedStepScores: generated.generatedStepScores,
-    generatedText: generated.generatedText,
+    decodeSteps: targetScore.targetStepScores.length,
     rawLogLikelihood: targetScore.rawLogLikelihood,
     targetTokenIds,
     targetStepScores: targetScore.targetStepScores,

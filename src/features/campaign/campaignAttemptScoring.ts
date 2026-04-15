@@ -39,9 +39,7 @@ function shouldLogCampaignWhisperScores() {
 }
 
 export interface CampaignAttemptScoreDebug {
-  generatedSequence: string;
-  generatedStepScores: WhisperStepScore[];
-  generatedTokenIds: number[];
+  averageLogProb: number;
   normalizedCampaignScore: number;
   rawPhraseLogLikelihood: number;
   stars: number;
@@ -63,11 +61,9 @@ function zeroScoreResult(
   reversedAttemptBlob: Blob | null,
 ): CampaignAttemptScoreResult {
   return {
-    debug: DEV_MODE
+    debug: shouldLogCampaignWhisperScores()
       ? {
-          generatedSequence: '',
-          generatedStepScores: [],
-          generatedTokenIds: [],
+          averageLogProb: Number.NEGATIVE_INFINITY,
           normalizedCampaignScore: 0,
           rawPhraseLogLikelihood: Number.NEGATIVE_INFINITY,
           stars: 0,
@@ -100,17 +96,12 @@ export async function scoreCampaignAttempt({
     reversedAttemptBlob = await reverseAudioBlob(attemptBlob);
     const processedAttemptAudio = await preprocessAudioBlob(reversedAttemptBlob);
     const whisperScore = await scoreWhisperPhraseAudio(processedAttemptAudio, targetPhrase);
-    const normalizedCampaignScore = normalizeCampaignWhisperScore({
-      averageLogProb: whisperScore.averageLogProb,
-      generatedAverageLogProb: whisperScore.generatedAverageLogProb,
-    });
+    const normalizedCampaignScore = normalizeCampaignWhisperScore(whisperScore.averageLogProb);
     const stars = getCampaignStars(normalizedCampaignScore);
     const shouldLogDebug = shouldLogCampaignWhisperScores();
     const debug = shouldLogDebug
       ? {
-          generatedSequence: whisperScore.generatedText,
-          generatedStepScores: whisperScore.generatedStepScores,
-          generatedTokenIds: whisperScore.generatedSequenceTokenIds,
+          averageLogProb: whisperScore.averageLogProb,
           normalizedCampaignScore,
           rawPhraseLogLikelihood: whisperScore.rawLogLikelihood,
           stars,
@@ -125,21 +116,6 @@ export async function scoreCampaignAttempt({
       console.info('[CampaignWhisperScore]', debug);
       console.table(
         debug.targetStepScores.map((stepScore) => ({
-          step: stepScore.step,
-          tokenId: stepScore.tokenId,
-          tokenText: stepScore.tokenText,
-          logProb: stepScore.logProb,
-          probability: stepScore.probability,
-          topCandidates: stepScore.topCandidates
-            .map(
-              (candidate) =>
-                `${candidate.tokenId}:${candidate.tokenText} (${candidate.logProb.toFixed(3)})`,
-            )
-            .join(' | '),
-        })),
-      );
-      console.table(
-        debug.generatedStepScores.map((stepScore) => ({
           step: stepScore.step,
           tokenId: stepScore.tokenId,
           tokenText: stepScore.tokenText,

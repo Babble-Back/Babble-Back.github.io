@@ -809,15 +809,14 @@ export function CampaignPanel({ currentUserId }: CampaignPanelProps) {
     }
 
     return (
-      <details className="result-box">
-        <summary>Whisper scorer debug</summary>
-        <p><strong>Target phrase:</strong> {scoreDebug.targetPhrase}</p>
-        <p><strong>Target token ids:</strong> {scoreDebug.targetTokenIds.join(', ') || 'none'}</p>
-        <p><strong>Generated sequence:</strong> {scoreDebug.generatedSequence || '(empty)'}</p>
-        <p><strong>Generated token ids:</strong> {scoreDebug.generatedTokenIds.join(', ') || 'none'}</p>
-        <p><strong>Decode steps:</strong> {scoreDebug.totalDecodeSteps}</p>
-        <p><strong>Raw phrase log-likelihood:</strong> {scoreDebug.rawPhraseLogLikelihood}</p>
-        <p><strong>Normalized campaign score:</strong> {scoreDebug.normalizedCampaignScore}</p>
+        <details className="result-box">
+          <summary>Whisper scorer debug</summary>
+        <p><strong>Average log prob:</strong> {scoreDebug.averageLogProb}</p>
+          <p><strong>Target phrase:</strong> {scoreDebug.targetPhrase}</p>
+          <p><strong>Target token ids:</strong> {scoreDebug.targetTokenIds.join(', ') || 'none'}</p>
+          <p><strong>Decode steps:</strong> {scoreDebug.totalDecodeSteps}</p>
+          <p><strong>Raw phrase log-likelihood:</strong> {scoreDebug.rawPhraseLogLikelihood}</p>
+          <p><strong>Normalized campaign score:</strong> {scoreDebug.normalizedCampaignScore}</p>
         <p><strong>Stars:</strong> {scoreDebug.stars}</p>
       </details>
     );
