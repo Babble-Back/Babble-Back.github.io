@@ -816,13 +816,15 @@ export function CampaignPanel({ currentUserId }: CampaignPanelProps) {
   ]);
 
   const renderScoringDebug = () => {
-    if (!import.meta.env.DEV || !scoreDebug) {
+    if (!scoreDebug) {
       return null;
     }
 
     return (
       <details className="result-box">
         <summary>Campaign scorer debug</summary>
+        <p><strong>Formula:</strong> {scoreDebug.scoreFormula}</p>
+        <p><strong>Calculation:</strong> {scoreDebug.scoreCalculation}</p>
         <p><strong>Average log prob:</strong> {scoreDebug.averageLogProb}</p>
         <p><strong>Target phrase:</strong> {scoreDebug.targetPhrase}</p>
         <p><strong>Whisper token ids:</strong> {scoreDebug.whisperTokenIds.join(', ') || 'none'}</p>
@@ -832,7 +834,9 @@ export function CampaignPanel({ currentUserId }: CampaignPanelProps) {
         <p><strong>Aligned token count:</strong> {scoreDebug.alignedTokenCount}</p>
         <p><strong>Alignment mode:</strong> {scoreDebug.alignmentMode}</p>
         <p><strong>Decode steps:</strong> {scoreDebug.totalDecodeSteps}</p>
+        <p><strong>ASR log probs:</strong> {scoreDebug.asrLogProbabilities.join(', ') || 'none'}</p>
         <p><strong>ASR probs:</strong> {scoreDebug.asrProbabilities.join(', ') || 'none'}</p>
+        <p><strong>LM log probs:</strong> {scoreDebug.lmLogProbabilities.join(', ') || 'none'}</p>
         <p><strong>LM probs:</strong> {scoreDebug.lmProbabilities.join(', ') || 'none'}</p>
         <p><strong>Per-token combined ratio:</strong> {scoreDebug.perTokenCombinedLogLikelihoodRatio.join(', ') || 'none'}</p>
         <p><strong>Raw combined log-likelihood:</strong> {scoreDebug.rawCombinedLogLikelihood}</p>
