@@ -4,6 +4,7 @@
   "short_name": "Babble",
   "start_url": "./",
   "scope": "./",
+  "display_override": ["fullscreen", "standalone"],
   "display": "standalone",
   "background_color": "#0B1220",
   "theme_color": "#7c3aed",
