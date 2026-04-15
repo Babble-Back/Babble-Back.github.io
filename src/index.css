@@ -1510,7 +1510,22 @@ p {
   text-wrap: balance;
 }
 
-.reward-review-line strong {
+.reward-review-label {
+  display: block;
+}
+
+.reward-review-phrase {
+  display: block;
+  margin-top: 0.34em;
+  background: linear-gradient(135deg, #8fc3ff 0%, #7790ff 44%, #8d6bff 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 10px 20px rgba(62, 102, 255, 0.18));
+}
+
+.reward-review-line strong:not(.reward-review-phrase) {
   color: #f6fbff;
 }
 

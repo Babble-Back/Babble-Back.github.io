@@ -553,10 +553,12 @@ export function PlayRoundPanel({
     <div className="reward-review-stack">
       <div className="reward-review-block">
         <p className="reward-review-line">
-          You said <strong>{round.correctPhrase}</strong>
+          <span className="reward-review-label">You said:</span>
+          <strong className="reward-review-phrase">{round.correctPhrase}</strong>
         </p>
         <p className="reward-review-line reward-review-line-guess">
-          {round.recipientUsername} guessed: <strong>{round.guess || 'No guess submitted'}</strong>
+          <span className="reward-review-label">{round.recipientUsername} guessed:</span>
+          <strong className="reward-review-phrase">{round.guess || 'No guess submitted'}</strong>
         </p>
         <RewardPlaybackButton blob={round.originalAudioBlob} remoteUrl={round.originalAudioUrl} />
       </div>
