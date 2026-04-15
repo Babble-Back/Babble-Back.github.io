@@ -1,4 +1,4 @@
-# TalkBack
+# BabbleBack
 
 Vite + React + TypeScript party-game prototype backed by Supabase Auth, Postgres, and Storage.
 
