@@ -36,12 +36,6 @@ function formatAverageScore(averageStars: number | null) {
 }
 
 function getActionAriaLabel(row: HomeTableRow) {
-  if (row.actionKind === 'pending_request') {
-    return row.requestDirection === 'incoming'
-      ? `${row.username} sent you a friend request. Tap to accept or reject it.`
-      : `Friend request to ${row.username} is still pending.`;
-  }
-
   return `${row.actionLabel} with ${row.username}`;
 }
 
@@ -153,38 +147,14 @@ export function HomePanel({
     }
   };
 
-  const handlePendingRequestAction = async (row: HomeTableRow) => {
-    if (row.requestDirection === 'outgoing') {
-      setInfo(`Friend request to ${row.username} is still pending.`);
-      return;
-    }
-
-    if (!row.requestId) {
-      return;
-    }
-
-    const requestedAction = window.prompt(
-      `Friend request from ${row.username}. Type "accept" to accept it or "reject" to reject it.`,
-      'accept',
-    );
-
-    if (requestedAction === null) {
-      return;
-    }
-
-    const normalizedAction = requestedAction.trim().toLowerCase();
-
-    if (normalizedAction !== 'accept' && normalizedAction !== 'reject') {
-      setError('Type "accept" or "reject" to manage a pending friend request.');
-      return;
-    }
-
-    const shouldAccept = normalizedAction === 'accept';
-    setActiveRequestId(row.requestId);
+  const handleRespondToRequest = async (requestId: string, accept: boolean) => {
+    setError(null);
+    setInfo(null);
+    setActiveRequestId(requestId);
 
     try {
-      await respondToFriendRequest(row.requestId, shouldAccept);
-      setInfo(shouldAccept ? 'Friend request accepted.' : 'Friend request rejected.');
+      await respondToFriendRequest(requestId, accept);
+      setInfo(accept ? 'Friend request accepted.' : 'Friend request rejected.');
       await onRefresh?.();
     } catch (caughtError) {
       setError(
@@ -212,10 +182,7 @@ export function HomePanel({
       if (row.friendId && onOpenFriend) {
         onOpenFriend(row.friendId);
       }
-      return;
     }
-
-    await handlePendingRequestAction(row);
   };
 
   const handleTouchStart = (event: TouchEvent<HTMLElement>) => {
@@ -337,6 +304,11 @@ export function HomePanel({
           ) : (
             <div className="game-list" role="list">
               {rows.map((row) => {
+                const isPendingRequest = row.actionKind === 'pending_request';
+                const isIncomingRequest =
+                  isPendingRequest && row.requestDirection === 'incoming';
+                const isOutgoingRequest =
+                  isPendingRequest && row.requestDirection === 'outgoing';
                 const isActionablePlay =
                   row.actionKind === 'start_game' ||
                   (row.actionKind === 'open_friend' && row.actionTone === 'take-turn');
@@ -346,40 +318,77 @@ export function HomePanel({
                     <div className="game-row-main">
                       <div className="game-row-copy">
                         <strong>{row.username}</strong>
+                        {isPendingRequest ? (
+                          <p className="game-row-helper">
+                            {isIncomingRequest
+                              ? 'Pending friend request'
+                              : 'Friend request pending'}
+                          </p>
+                        ) : null}
                       </div>
 
-                      <div
-                        className="game-score"
-                        aria-label={`Average score ${formatAverageScore(row.averageStars)}`}
-                      >
-                        <span className="game-score-label">Average Score</span>
-                        <StarRating
-                          label={`Average score ${formatAverageScore(row.averageStars)}`}
-                          value={row.averageStars ?? 0}
-                        />
-                        <span className="game-score-value">
-                          {formatAverageScore(row.averageStars)}
-                        </span>
-                      </div>
+                      {!isPendingRequest ? (
+                        <div
+                          className="game-score"
+                          aria-label={`Average score ${formatAverageScore(row.averageStars)}`}
+                        >
+                          <span className="game-score-label">Average Score</span>
+                          <StarRating
+                            label={`Average score ${formatAverageScore(row.averageStars)}`}
+                            value={row.averageStars ?? 0}
+                          />
+                          <span className="game-score-value">
+                            {formatAverageScore(row.averageStars)}
+                          </span>
+                        </div>
+                      ) : null}
                     </div>
 
                     <div className="game-actions">
-                      <button
-                        aria-label={getActionAriaLabel(row)}
-                        className={`button game-action-button ${
-                          row.actionTone === 'take-turn'
-                            ? 'game-action-button-take-turn'
-                            : 'game-action-button-their-turn'
-                        }`}
-                        disabled={activeRequestId === row.requestId}
-                        onClick={() => {
-                          void handleRowAction(row);
-                        }}
-                        type="button"
-                      >
-                        {isActionablePlay ? <PlayIcon /> : <InfoIcon />}
-                        <span>{row.actionLabel}</span>
-                      </button>
+                      {isIncomingRequest && row.requestId ? (
+                        <div className="button-row game-request-actions">
+                          <button
+                            className="button primary"
+                            disabled={activeRequestId === row.requestId}
+                            onClick={() => {
+                              void handleRespondToRequest(row.requestId!, true);
+                            }}
+                            type="button"
+                          >
+                            Accept
+                          </button>
+                          <button
+                            className="button ghost"
+                            disabled={activeRequestId === row.requestId}
+                            onClick={() => {
+                              void handleRespondToRequest(row.requestId!, false);
+                            }}
+                            type="button"
+                          >
+                            Decline
+                          </button>
+                        </div>
+                      ) : isOutgoingRequest ? (
+                        <span className="badge waiting_for_attempt game-row-status">
+                          Pending Friend Request
+                        </span>
+                      ) : (
+                        <button
+                          aria-label={getActionAriaLabel(row)}
+                          className={`button game-action-button ${
+                            row.actionTone === 'take-turn'
+                              ? 'game-action-button-take-turn'
+                              : 'game-action-button-their-turn'
+                          }`}
+                          onClick={() => {
+                            void handleRowAction(row);
+                          }}
+                          type="button"
+                        >
+                          {isActionablePlay ? <PlayIcon /> : <InfoIcon />}
+                          <span>{row.actionLabel}</span>
+                        </button>
+                      )}
                     </div>
                   </div>
                 );

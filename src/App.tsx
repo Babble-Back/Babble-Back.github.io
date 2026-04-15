@@ -803,7 +803,7 @@ function App() {
     }
   };
   const homeRows = useMemo(() => {
-    type SortableHomeTableRow = HomeTableRow & { sortAt: string };
+    type SortableHomeTableRow = HomeTableRow & { sortAt: string; sortRank: number };
 
     const pendingRequestUserIds = new Set(requests.map((request) => request.otherUserId));
 
@@ -823,6 +823,7 @@ function App() {
           actionTone: shouldStartGame || isYourTurn ? 'take-turn' : 'their-turn',
           friendId: thread.friend.id,
           sortAt: thread.lastActiveAt ?? thread.friend.createdAt,
+          sortRank: shouldStartGame ? 2 : isYourTurn ? 1 : 3,
         };
       });
 
@@ -836,16 +837,21 @@ function App() {
       requestId: request.id,
       requestDirection: request.direction,
       sortAt: request.createdAt,
+      sortRank: request.direction === 'incoming' ? 0 : 4,
     }));
 
     return [...requestRows, ...threadRows]
       .sort((left, right) => {
+        if (left.sortRank !== right.sortRank) {
+          return left.sortRank - right.sortRank;
+        }
+
         const leftDate = new Date(left.sortAt).getTime();
         const rightDate = new Date(right.sortAt).getTime();
 
         return rightDate - leftDate || left.username.localeCompare(right.username);
       })
-      .map(({ sortAt: _sortAt, ...row }) => row);
+      .map(({ sortAt: _sortAt, sortRank: _sortRank, ...row }) => row);
   }, [currentUserId, requests, threadSummaries]);
 
   const showFullscreenLoader =

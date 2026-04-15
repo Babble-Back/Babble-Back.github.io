@@ -1029,6 +1029,13 @@ p {
   color: #7c3cff;
 }
 
+.game-row-helper {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
 .game-score {
   display: grid;
   gap: 2px;
@@ -1112,6 +1119,19 @@ p {
 
 .game-action-button {
   flex: 0 0 auto;
+}
+
+.game-request-actions {
+  justify-content: flex-end;
+}
+
+.game-request-actions > * {
+  flex: 0 1 auto;
+  min-width: 110px;
+}
+
+.game-row-status {
+  align-self: center;
 }
 
 .game-action-button-their-turn {
@@ -1388,15 +1408,11 @@ p {
   align-items: center;
   justify-content: center;
   gap: clamp(14px, 3vw, 24px);
-  padding: 16px 22px;
-  border-radius: 28px;
-  background:
-    linear-gradient(145deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.04)),
-    rgba(6, 11, 20, 0.26);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow:
-    0 20px 38px rgba(0, 0, 0, 0.18),
-    0 0 0 1px rgba(255, 255, 255, 0.04) inset;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
   transform-origin: center;
   transition: transform 280ms ease-out;
 }
@@ -1466,6 +1482,47 @@ p {
 }
 
 .reward-reveal-details p {
+  margin: 0;
+}
+
+.reward-review-stack {
+  width: 100%;
+  display: grid;
+  gap: 18px;
+  justify-items: center;
+}
+
+.reward-review-block {
+  width: 100%;
+  display: grid;
+  gap: 10px;
+  justify-items: center;
+}
+
+.reward-review-line {
+  margin: 0;
+  color: rgba(244, 234, 204, 0.9);
+  font-size: 1.04rem;
+  line-height: 1.45;
+  text-align: center;
+  text-wrap: balance;
+}
+
+.reward-review-line strong {
+  color: #f6fbff;
+}
+
+.reward-review-line-guess {
+  color: #fff0b8;
+}
+
+.reward-review-playback {
+  min-height: 92px;
+  display: grid;
+  place-items: center;
+}
+
+.reward-review-empty {
   margin: 0;
 }
 
@@ -1833,6 +1890,41 @@ p {
 .round-screen-footer {
   display: grid;
   gap: 12px;
+}
+
+.round-screen-body-with-floating-footer {
+  padding-bottom: clamp(124px, 18vw, 164px);
+}
+
+.round-screen-footer-floating {
+  position: fixed;
+  left: 50%;
+  bottom: max(14px, calc(10px + env(safe-area-inset-bottom)));
+  z-index: 12;
+  width: min(720px, calc(100vw - 28px));
+  transform: translateX(-50%);
+  padding: 14px;
+  border-radius: 26px;
+  border: 1px solid rgba(18, 31, 46, 0.08);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(246, 250, 255, 0.9)),
+    rgba(255, 255, 255, 0.92);
+  box-shadow: 0 22px 44px rgba(11, 18, 32, 0.2);
+  backdrop-filter: blur(14px);
+}
+
+.round-screen-footer-floating .button-row {
+  margin: 0;
+}
+
+.round-screen-footer-floating .button-row > * {
+  flex: 1 1 100%;
+}
+
+.round-screen-footer-floating .button {
+  width: 100%;
+  min-height: 58px;
+  border-radius: 999px;
 }
 
 .campaign-screen {
@@ -3024,9 +3116,9 @@ p {
   }
 
   .reward-sequence-coins {
-    width: 100%;
+    width: auto;
     gap: 14px;
-    padding: 14px 18px;
+    padding: 0;
   }
 
   .reward-sequence-coin-value {

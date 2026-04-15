@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useObjectUrl } from '../../../audio/hooks/useObjectUrl';
 import { useAudioRecorder } from '../../../audio/hooks/useAudioRecorder';
 import { reverseAudioBlob } from '../../../audio/utils/reverseAudioBlob';
 import { AudioPlayerCard } from '../../../components/AudioPlayerCard';
 import { WaveformLoader } from '../../../components/WaveformLoader';
-import type { PlaybackStartKind } from '../../../components/WaveformPlayButton';
+import { WaveformPlayButton, type PlaybackStartKind } from '../../../components/WaveformPlayButton';
 import { ToggleRecordButton } from '../../../components/ToggleRecordButton';
 import { useCoins } from '../../resources/ResourceProvider';
 import { claimReward, getRoundReward } from '../../../lib/roundRewards';
@@ -30,7 +31,6 @@ interface PlayRoundPanelProps {
 }
 
 type RecipientStage = 'listen' | 'record' | 'guess' | 'reveal';
-type CompletedRoundStage = 'review' | 'reward';
 
 function getRecipientStage(options: {
   hasAttempt: boolean;
@@ -105,34 +105,31 @@ function clearRewardAnimationState(userId: string, roundId: string) {
   window.sessionStorage.removeItem(getRewardAnimationStorageKey(userId, roundId));
 }
 
-function getCompletedRoundStageStorageKey(userId: string, roundId: string) {
-  return `backtalk:round-complete-stage:${userId}:${roundId}`;
-}
-
-function getStoredCompletedRoundStage(userId: string, roundId: string): CompletedRoundStage | null {
-  if (typeof window === 'undefined') {
-    return null;
-  }
-
-  const storedStage = window.sessionStorage.getItem(getCompletedRoundStageStorageKey(userId, roundId));
-  return storedStage === 'reward' ? 'reward' : storedStage === 'review' ? 'review' : null;
-}
-
-function setStoredCompletedRoundStage(
-  userId: string,
-  roundId: string,
-  stage: CompletedRoundStage,
-) {
-  if (typeof window === 'undefined') {
-    return;
-  }
-
-  window.sessionStorage.setItem(getCompletedRoundStageStorageKey(userId, roundId), stage);
-}
-
 function formatListenLabel(count: number) {
   return `${count} listen${count === 1 ? '' : 's'}`;
 }
+
+function RewardPlaybackButton({
+  blob,
+  remoteUrl,
+}: {
+  blob?: Blob | null;
+  remoteUrl?: string | null;
+}) {
+  const objectUrl = useObjectUrl(blob);
+  const src = objectUrl ?? remoteUrl ?? null;
+
+  if (!src) {
+    return <div className="empty-state compact-empty reward-review-empty">No audio available yet.</div>;
+  }
+
+  return (
+    <div className="reward-review-playback">
+      <WaveformPlayButton className="reward-review-play-button" size={86} src={src} />
+    </div>
+  );
+}
+
 export function PlayRoundPanel({
   currentUserId,
   round,
@@ -153,7 +150,6 @@ export function PlayRoundPanel({
   const [isAnimatingReward, setIsAnimatingReward] = useState(false);
   const [isAwaitingRewardContinue, setIsAwaitingRewardContinue] = useState(false);
   const [isClaimingReward, setIsClaimingReward] = useState(false);
-  const [completedRoundStage, setCompletedRoundStage] = useState<CompletedRoundStage>('review');
   const [roundReward, setRoundReward] = useState<RoundReward | null>(null);
   const [listenState, setListenState] = useState<RoundListenState | null>(null);
   const [isLoadingListenState, setIsLoadingListenState] = useState(false);
@@ -171,23 +167,10 @@ export function PlayRoundPanel({
     recorder.clearRecording();
     lastSavedAttemptBlobRef.current = null;
     setRoundReward(null);
-    setIsLoadingReward(
-      round?.status === 'complete'
-        ? round.recipientId === currentUserId
-          ? true
-          : (getStoredCompletedRoundStage(currentUserId, round.id) ?? 'review') === 'reward'
-        : false,
-    );
+    setIsLoadingReward(round?.status === 'complete');
     setIsAnimatingReward(false);
     setIsAwaitingRewardContinue(false);
     setIsClaimingReward(false);
-    setCompletedRoundStage(
-      round?.status === 'complete'
-        ? round.recipientId === currentUserId
-          ? 'reward'
-          : getStoredCompletedRoundStage(currentUserId, round.id) ?? 'review'
-        : 'review',
-    );
     setListenState(null);
     setIsLoadingListenState(false);
     setIsAuthorizingListenPlayback(false);
@@ -218,8 +201,7 @@ export function PlayRoundPanel({
       })
     : 'listen';
   const isCompletedRound = round?.status === 'complete';
-  const isRewardStepOpen = Boolean(isCompletedRound && (isRecipient || completedRoundStage === 'reward'));
-  const isReviewerRecordingStep = Boolean(isCompletedRound && !isRecipient && completedRoundStage === 'review');
+  const isRewardStepOpen = Boolean(isCompletedRound);
   const includedFreeListenLimit = round ? freeListenLimitByDifficulty[round.difficulty] : 0;
   const effectiveFreeListenLimit = listenState?.freeLimit ?? includedFreeListenLimit;
   const listenUsageCount = listenState?.listenCount ?? 0;
@@ -467,8 +449,6 @@ export function PlayRoundPanel({
       setIsLoadingReward(true);
 
       try {
-        setStoredCompletedRoundStage(currentUserId, round.id, 'reward');
-
         try {
           await markRoundResultsViewed(round.id);
         } catch (markViewedError) {
@@ -556,49 +536,70 @@ export function PlayRoundPanel({
     );
   }
 
-  const isSenderCompletedRound = !isRecipient && round.status === 'complete';
-  const showSenderRecordingReview = isSenderCompletedRound && completedRoundStage === 'review';
-  const showRewardPage = round.status === 'complete' && (isRecipient || completedRoundStage === 'reward');
+  const showRewardPage = round.status === 'complete';
+  const isSenderRewardPage = showRewardPage && !isRecipient;
   const rewardResultSummary =
-    round.status === 'complete' && scorePresentation ? (
+    isRecipient && round.status === 'complete' && scorePresentation ? (
       <div className="reward-reveal-details">
         <p>
-          <strong>{isRecipient ? 'You guessed:' : 'You said:'}</strong>{' '}
-          {isRecipient ? round.guess || 'No guess submitted' : round.correctPhrase}
+          <strong>You guessed:</strong> {round.guess || 'No guess submitted'}
         </p>
         <p>
-          <strong>{isRecipient ? `${round.senderUsername} said:` : `${round.recipientUsername} guessed:`}</strong>{' '}
-          {isRecipient ? round.correctPhrase : round.guess || 'No guess submitted'}
+          <strong>{round.senderUsername} said:</strong> {round.correctPhrase}
         </p>
       </div>
     ) : null;
+  const senderRewardReview = isSenderRewardPage ? (
+    <div className="reward-review-stack">
+      <div className="reward-review-block">
+        <p className="reward-review-line">
+          You said <strong>{round.correctPhrase}</strong>
+        </p>
+        <RewardPlaybackButton blob={round.originalAudioBlob} remoteUrl={round.originalAudioUrl} />
+      </div>
+
+      <div className="reward-review-block">
+        <p className="reward-review-line">{round.recipientUsername} heard:</p>
+        <RewardPlaybackButton blob={round.reversedAudioBlob} remoteUrl={round.reversedAudioUrl} />
+      </div>
+
+      <div className="reward-review-block">
+        <p className="reward-review-line">{round.recipientUsername} Babbled:</p>
+        <RewardPlaybackButton blob={round.attemptAudioBlob} remoteUrl={round.attemptAudioUrl} />
+      </div>
+
+      <div className="reward-review-block">
+        <p className="reward-review-line">{round.recipientUsername} Babble reversed:</p>
+        <RewardPlaybackButton
+          blob={round.attemptReversedBlob}
+          remoteUrl={round.attemptReversedUrl}
+        />
+      </div>
+
+      <p className="reward-review-line reward-review-line-guess">
+        {round.recipientUsername} guessed: <strong>{round.guess || 'No guess submitted'}</strong>
+      </p>
+    </div>
+  ) : null;
   const headerEyebrow = isRecipient
     ? recipientStage === 'reveal'
       ? 'Reward Reveal'
       : getRecipientStepLabel(recipientStage)
-    : showSenderRecordingReview
-      ? 'Review Recordings'
-      : showRewardPage
-        ? 'Reward Review'
-        : 'Round Review';
+    : showRewardPage
+      ? 'Reward Review'
+      : 'Round Review';
   const headerTitle = isRecipient
     ? recipientStage === 'reveal'
       ? (roundSummary?.headline ?? 'Round')
       : (roundSummary?.headline ?? 'Round')
-    : showSenderRecordingReview
-      ? `Review ${round.recipientUsername}'s round`
-      : showRewardPage
-        ? (roundSummary?.headline ?? 'Round')
-        : (roundSummary?.headline ?? 'Round');
+    : (roundSummary?.headline ?? 'Round');
   const headerDescription = isRecipient
     ? recipientStage === 'reveal'
       ? 'See the score, compare the phrase, and bank your BB Coins when you continue.'
       : (roundSummary?.description ?? '')
-    : showSenderRecordingReview
-      ? 'Listen through the recordings first. Continue when you are ready to reveal the score and BB Coin payout.'
-      : showRewardPage
-        ? 'This screen settles your BB Coin reward for the round.'
-        : (roundSummary?.description ?? '');
+    : showRewardPage
+      ? 'This screen settles your BB Coin reward for the round.'
+      : (roundSummary?.description ?? '');
   const roundScreenClassName = showRewardPage ? 'round-screen round-screen-reward' : 'surface round-screen';
 
   const handleSubmitGuess = async () => {
@@ -678,18 +679,6 @@ export function PlayRoundPanel({
   const handleReadyToImitate = async () => {
     await recorder.prepareRecording();
     setHasConfirmedListen(true);
-  };
-
-  const handleOpenRewardStep = () => {
-    if (!round) {
-      return;
-    }
-
-    setError(null);
-    setInfo(null);
-    setIsLoadingReward(true);
-    setStoredCompletedRoundStage(currentUserId, round.id, 'reward');
-    setCompletedRoundStage('reward');
   };
 
   const handleRecipientContinue = async () => {
@@ -790,9 +779,9 @@ export function PlayRoundPanel({
             blob={round.originalAudioBlob}
             remoteUrl={round.originalAudioUrl}
           />
-        ) : null}
-        <div className="button-row">
-          {isRecipient ? (
+        ) : senderRewardReview}
+        {isRecipient ? (
+          <div className="button-row">
             <button
               className="button primary"
               disabled={isRewardBusy}
@@ -803,23 +792,8 @@ export function PlayRoundPanel({
             >
               Record next prompt
             </button>
-          ) : (
-            <button
-              className="button primary"
-              disabled={isArchiving || isRewardBusy || isLoadingReward}
-              onClick={() => {
-                void handleArchiveRound();
-              }}
-              type="button"
-            >
-              {isArchiving
-                ? 'Continuing...'
-                : isLoadingReward
-                  ? 'loading...'
-                  : 'Continue thread'}
-            </button>
-          )}
-        </div>
+          </div>
+        ) : null}
       </RoundRewardSequence>
     ) : round.status === 'complete' ? (
       isLoadingReward ? (
@@ -830,8 +804,8 @@ export function PlayRoundPanel({
       ) : (
         <div className="reward-status-shell">
           <p>Reward data is missing for this round, so no BB Coin payout can be shown here.</p>
-          <div className="button-row">
-            {isRecipient ? (
+          {isRecipient ? (
+            <div className="button-row">
               <button
                 className="button primary"
                 disabled={isRewardBusy}
@@ -842,19 +816,8 @@ export function PlayRoundPanel({
               >
                 Record next prompt
               </button>
-            ) : (
-              <button
-                className="button primary"
-                disabled={isArchiving || isRewardBusy}
-                onClick={() => {
-                  void handleArchiveRound();
-                }}
-                type="button"
-              >
-                {isArchiving ? 'Continuing...' : 'Continue thread'}
-              </button>
-            )}
-          </div>
+            </div>
+          ) : null}
         </div>
       )
     ) : null;
@@ -957,7 +920,7 @@ export function PlayRoundPanel({
           ) : null}
         </div>
       ) : (
-        <div className="round-screen-body">
+        <div className={`round-screen-body${isSenderRewardPage ? ' round-screen-body-with-floating-footer' : ''}`}>
           {round.status === 'waiting_for_attempt' ? (
             <div className="round-screen-step">
               <div className="result-box">
@@ -991,30 +954,13 @@ export function PlayRoundPanel({
 
           {round.status === 'complete' && scorePresentation ? (
             <div className={`round-screen-step${showRewardPage ? ' reward-stage-step' : ''}`}>
-              {showSenderRecordingReview ? (
-                <>
-                  <div className="result-box round-screen-summary">
-                    <strong>Review the recordings</strong>
-                    <p>
-                      Listen through the round first. Continue when you are ready to reveal the
-                      score and BB Coin reward.
-                    </p>
-                  </div>
-                  {reviewAudioGrid}
-                </>
-              ) : null}
-
-              {showRewardPage ? (
-                <>
-                  {rewardStatusCard}
-                </>
-              ) : null}
+              {showRewardPage ? rewardStatusCard : null}
             </div>
           ) : null}
         </div>
       )}
 
-      <div className="round-screen-footer">
+      <div className={`round-screen-footer${isSenderRewardPage ? ' round-screen-footer-floating' : ''}`}>
         {isRecipient && recipientStage === 'listen' ? (
           <div className="button-row">
             <button
@@ -1045,18 +991,20 @@ export function PlayRoundPanel({
           </div>
         ) : null}
 
-        {!isRecipient && showSenderRecordingReview ? (
+        {isSenderRewardPage ? (
           <div className="button-row">
             <button
               className="button primary"
-              onClick={handleOpenRewardStep}
+              disabled={isArchiving || isRewardBusy || isLoadingReward}
+              onClick={() => {
+                void handleArchiveRound();
+              }}
               type="button"
             >
-              Continue
+              {isArchiving ? 'Continuing...' : isLoadingReward ? 'loading...' : 'Continue'}
             </button>
           </div>
         ) : null}
-
       </div>
 
       <div className="stack">
