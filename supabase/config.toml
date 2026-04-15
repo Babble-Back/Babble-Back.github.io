@@ -1,0 +1,5 @@
+# Edge Function auth is handled inside the function itself with the caller's
+# Bearer token. Disable Supabase's legacy JWT gate so publishable-key clients
+# can invoke the function without being rejected before our code runs.
+[functions.send-push-notification]
+verify_jwt = false
