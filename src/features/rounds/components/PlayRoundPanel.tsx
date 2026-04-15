@@ -555,6 +555,9 @@ export function PlayRoundPanel({
         <p className="reward-review-line">
           You said <strong>{round.correctPhrase}</strong>
         </p>
+        <p className="reward-review-line reward-review-line-guess">
+          {round.recipientUsername} guessed: <strong>{round.guess || 'No guess submitted'}</strong>
+        </p>
         <RewardPlaybackButton blob={round.originalAudioBlob} remoteUrl={round.originalAudioUrl} />
       </div>
 
@@ -575,10 +578,6 @@ export function PlayRoundPanel({
           remoteUrl={round.attemptReversedUrl}
         />
       </div>
-
-      <p className="reward-review-line reward-review-line-guess">
-        {round.recipientUsername} guessed: <strong>{round.guess || 'No guess submitted'}</strong>
-      </p>
     </div>
   ) : null;
   const headerEyebrow = isRecipient

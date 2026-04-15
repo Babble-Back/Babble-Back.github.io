@@ -1488,22 +1488,24 @@ p {
 .reward-review-stack {
   width: 100%;
   display: grid;
-  gap: 18px;
+  gap: 26px;
   justify-items: center;
 }
 
 .reward-review-block {
   width: 100%;
   display: grid;
-  gap: 10px;
+  gap: 14px;
   justify-items: center;
 }
 
 .reward-review-line {
   margin: 0;
   color: rgba(244, 234, 204, 0.9);
-  font-size: 1.04rem;
-  line-height: 1.45;
+  font-size: clamp(2.05rem, 6.1vw, 2.85rem);
+  line-height: 1.12;
+  font-weight: 800;
+  letter-spacing: -0.02em;
   text-align: center;
   text-wrap: balance;
 }
@@ -1903,14 +1905,12 @@ p {
   z-index: 12;
   width: min(720px, calc(100vw - 28px));
   transform: translateX(-50%);
-  padding: 14px;
-  border-radius: 26px;
-  border: 1px solid rgba(18, 31, 46, 0.08);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(246, 250, 255, 0.9)),
-    rgba(255, 255, 255, 0.92);
-  box-shadow: 0 22px 44px rgba(11, 18, 32, 0.2);
-  backdrop-filter: blur(14px);
+  padding: 0;
+  border-radius: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
 }
 
 .round-screen-footer-floating .button-row {
