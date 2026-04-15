@@ -1,7 +1,7 @@
 {
   "id": "./",
   "name": "BabbleBack",
-  "short_name": "Babble",
+  "short_name": "BabbleBack",
   "start_url": "./",
   "scope": "./",
   "display_override": ["fullscreen", "standalone"],
