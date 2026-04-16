@@ -46,6 +46,12 @@ interface WordPackRow {
   created_at: string;
 }
 
+export interface WordCountsByDifficulty {
+  easy: number;
+  medium: number;
+  hard: number;
+}
+
 interface CampaignRewardPackRow {
   id: string;
   reward_pack_id: string | null;
@@ -118,7 +124,7 @@ interface CachedPayload<T> {
 }
 
 const MAX_CACHE_AGE_MS = 1000 * 60 * 60 * 24;
-const WORD_PACKS_CACHE_KEY = 'word_packs_cache';
+const WORD_PACKS_CACHE_KEY = 'word_packs_cache_v2';
 const WORDS_CACHE_PREFIX = 'word_pack_words_cache:';
 const WORD_PACK_UNLOCKS_CACHE_PREFIX = 'word_pack_unlocks_cache:';
 const DIFFICULTY_ORDER: WordDifficulty[] = ['easy', 'medium', 'hard'];

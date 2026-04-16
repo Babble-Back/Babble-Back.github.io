@@ -15,13 +15,13 @@ import {
   getWordPackOptions,
   loadRoundWordPacks,
   rememberPresentedPhrase,
+  type RoundSelectableWordPack,
   type WordOption,
 } from '../wordPacks';
 import {
   purchaseCampaignPackUnlock,
   type CampaignPackCurrency,
   type WordPack,
-  type WordPackWithWords,
 } from '../../../lib/wordPacks';
 
 interface CreateRoundPanelProps {
@@ -33,6 +33,12 @@ interface CreateRoundPanelProps {
 }
 
 type CreateStage = 'phrase' | 'record';
+
+const DEFAULT_PACK_UNLOCK_COSTS = {
+  easy: 25,
+  medium: 50,
+  hard: 150,
+} as const;
 
 function getDifficultyEffectLabel(difficulty: WordOption['displayDifficulty']) {
   if (difficulty === 'easy') {
@@ -67,9 +73,9 @@ function getPackAccessLabel(pack: Pick<WordPack, 'isFree' | 'isUnlocked' | 'maxU
 }
 
 function getNextPurchasableDifficulty(
-  pack: Pick<WordPack, 'isFree' | 'maxUnlockedDifficulty' | 'campaignCurrency'>,
+  pack: Pick<WordPack, 'isFree' | 'maxUnlockedDifficulty'>,
 ) {
-  if (pack.isFree || !pack.campaignCurrency) {
+  if (pack.isFree) {
     return null;
   }
 
@@ -96,6 +102,10 @@ function formatCampaignCurrencyLabel(currency: CampaignPackCurrency | null | und
   return amount === 1 ? currency.singularName : currency.pluralName;
 }
 
+function formatDifficultyWordCounts(pack: RoundSelectableWordPack) {
+  return `Easy ${pack.totalWordCounts.easy}, Medium ${pack.totalWordCounts.medium}, Hard ${pack.totalWordCounts.hard}`;
+}
+
 export function CreateRoundPanel({
   currentUserId,
   currentUserUsername,
@@ -108,7 +118,7 @@ export function CreateRoundPanel({
   const [stage, setStage] = useState<CreateStage>('phrase');
   const [packs, setPacks] = useState<WordPack[]>([]);
   const [selectedPackId, setSelectedPackId] = useState<string>('');
-  const [selectedPack, setSelectedPack] = useState<WordPackWithWords | null>(null);
+  const [selectedPack, setSelectedPack] = useState<RoundSelectableWordPack | null>(null);
   const [selectedOption, setSelectedOption] = useState<WordOption | null>(null);
   const [availableOptions, setAvailableOptions] = useState<WordOption[]>([]);
   const [packsError, setPacksError] = useState<string | null>(null);
@@ -155,7 +165,7 @@ export function CreateRoundPanel({
       return;
     }
 
-    const nextOptions = getThreeOptions(selectedPack.words);
+    const nextOptions = getThreeOptions(selectedPack.accessibleWords);
 
     setAvailableOptions(nextOptions);
     setSelectedOption(null);
@@ -235,8 +245,9 @@ export function CreateRoundPanel({
     ? getNextPurchasableDifficulty(selectedPack)
     : null;
   const nextPurchasableCost =
-    selectedPack?.campaignCurrency && nextPurchasableDifficulty
-      ? selectedPack.campaignCurrency.packCosts[nextPurchasableDifficulty]
+    nextPurchasableDifficulty
+      ? (selectedPack?.campaignCurrency?.packCosts[nextPurchasableDifficulty] ??
+        DEFAULT_PACK_UNLOCK_COSTS[nextPurchasableDifficulty])
       : null;
   const selectedPackCurrency = selectedPack?.campaignCurrency ?? null;
   const selectedPackIsLocked = Boolean(selectedPack && !selectedPack.isFree && !selectedPack.isUnlocked);
@@ -288,7 +299,7 @@ export function CreateRoundPanel({
   };
 
   const handlePurchaseSelectedPack = async () => {
-    if (!selectedPack || !selectedPackCurrency || !nextPurchasableDifficulty) {
+    if (!selectedPack || !nextPurchasableDifficulty) {
       return;
     }
 
@@ -371,12 +382,15 @@ export function CreateRoundPanel({
                   <strong>Pack:</strong> {selectedPack.name}
                 </p>
                 <p>
-                  <strong>Words:</strong> {selectedPack.words.length}
+                  <strong>Words:</strong> {formatDifficultyWordCounts(selectedPack)}
+                </p>
+                <p>
+                  <strong>Usable now:</strong> {selectedPack.accessibleWords.length}
                 </p>
                 <p>
                   <strong>Access:</strong> {getPackAccessLabel(selectedPack)}
                 </p>
-                {selectedPackCurrency && nextPurchasableDifficulty && nextPurchasableCost ? (
+                {nextPurchasableDifficulty && nextPurchasableCost ? (
                   <p>
                     <strong>Next unlock:</strong>{' '}
                     {nextPurchasableDifficulty} for {nextPurchasableCost}{' '}
@@ -384,7 +398,7 @@ export function CreateRoundPanel({
                   </p>
                 ) : null}
                 {selectedPack.description ? <p>{selectedPack.description}</p> : null}
-                {selectedPackCurrency && nextPurchasableDifficulty && nextPurchasableCost ? (
+                {nextPurchasableDifficulty && nextPurchasableCost ? (
                   <div className="button-row">
                     <button
                       className="button secondary"

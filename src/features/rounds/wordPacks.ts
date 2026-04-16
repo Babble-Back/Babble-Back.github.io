@@ -4,6 +4,7 @@ import {
   loadWordPackById,
   resolveWordPackId,
   type WordDifficulty,
+  type WordCountsByDifficulty,
   type WordEntry,
   type WordPack,
   type WordPackWithWords,
@@ -19,9 +20,15 @@ export interface WordOption extends WordEntry {
   displayDifficulty: WordDifficulty;
 }
 
+export interface RoundSelectableWordPack extends WordPackWithWords {
+  accessibleWords: WordEntry[];
+  totalWordCounts: WordCountsByDifficulty;
+  accessibleWordCounts: WordCountsByDifficulty;
+}
+
 export interface RoundWordPackLoadResult {
   packs: WordPack[];
-  selectedPack: WordPackWithWords;
+  selectedPack: RoundSelectableWordPack;
   selectedPackId: string;
   source: 'remote' | 'fallback';
   error: string | null;
@@ -129,6 +136,21 @@ function normalizeWordPack(pack: WordPackWithWords): WordPackWithWords {
   };
 }
 
+function buildRoundSelectablePack(
+  pack: WordPackWithWords,
+  accessibleWords: WordEntry[],
+): RoundSelectableWordPack {
+  const normalizedPack = normalizeWordPack(pack);
+  const normalizedAccessibleWords = dedupeWords(accessibleWords);
+
+  return {
+    ...normalizedPack,
+    accessibleWords: normalizedAccessibleWords,
+    totalWordCounts: countWordsByDifficulty(normalizedPack.words),
+    accessibleWordCounts: countWordsByDifficulty(normalizedAccessibleWords),
+  };
+}
+
 function randomItem<T>(items: T[]) {
   if (!items.length) {
     return null;
@@ -187,6 +209,16 @@ export function getDefaultPackId(packs: WordPack[]) {
   );
 }
 
+function countWordsByDifficulty(words: WordEntry[]): WordCountsByDifficulty {
+  return words.reduce<WordCountsByDifficulty>(
+    (counts, word) => {
+      counts[word.difficulty] += 1;
+      return counts;
+    },
+    { easy: 0, medium: 0, hard: 0 },
+  );
+}
+
 export function getWordPackOptions(packs: WordPack[]) {
   return packs.map((pack) => ({
     id: pack.id,
@@ -223,7 +255,7 @@ export async function loadRoundWordPacks(
     ].filter((packId, index, allPackIds) => allPackIds.indexOf(packId) === index);
 
     let firstSelectedPackWithWords: {
-      pack: WordPackWithWords;
+      pack: RoundSelectableWordPack;
       packId: string;
     } | null = null;
 
@@ -239,25 +271,29 @@ export async function loadRoundWordPacks(
         ...selectedPack,
         isUnlocked: selectedPackBase.isUnlocked !== false,
         maxUnlockedDifficulty: selectedPackBase.maxUnlockedDifficulty ?? null,
-        words: getAccessibleWordsForPack(selectedPackBase, selectedPack.words),
       });
+      const roundSelectablePack = buildRoundSelectablePack(
+        normalizedPack,
+        getAccessibleWordsForPack(selectedPackBase, normalizedPack.words),
+      );
 
       if (requestedPack && selectedPackBase.id === requestedPack.id) {
         return {
           packs,
-          selectedPack: normalizedPack,
+          selectedPack: roundSelectablePack,
           selectedPackId: selectedPackBase.id,
           source: 'remote',
           error:
-            normalizedPack.words.length === 0 && selectedPackBase.isUnlocked !== false
+            roundSelectablePack.accessibleWords.length === 0 &&
+            selectedPackBase.isUnlocked !== false
               ? 'The selected pack has no usable words.'
               : null,
         };
       }
 
-      if (!firstSelectedPackWithWords && normalizedPack.words.length > 0) {
+      if (!firstSelectedPackWithWords && roundSelectablePack.accessibleWords.length > 0) {
         firstSelectedPackWithWords = {
-          pack: normalizedPack,
+          pack: roundSelectablePack,
           packId: selectedPackBase.id,
         };
       }
@@ -277,7 +313,7 @@ export async function loadRoundWordPacks(
   } catch (error) {
     return {
       packs: [getFallbackPackSummary()],
-      selectedPack: FALLBACK_WORD_PACK,
+      selectedPack: buildRoundSelectablePack(FALLBACK_WORD_PACK, FALLBACK_WORD_PACK.words),
       selectedPackId: FALLBACK_WORD_PACK.id,
       source: 'fallback',
       error:
