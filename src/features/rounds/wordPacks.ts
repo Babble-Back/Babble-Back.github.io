@@ -29,17 +29,18 @@ export interface RoundWordPackLoadResult {
 
 const FALLBACK_WORD_PACK: WordPackWithWords = {
   id: FALLBACK_PACK_ID,
-  name: 'Starter Pack',
+  name: 'Offline Starter Pack',
   description: 'Small built-in fallback pack used when remote packs are unavailable.',
   isFree: true,
   isUnlocked: true,
   createdAt: FALLBACK_CREATED_AT,
   words: [
-    'tiny spoon',
+    'blue cup',
+    'small bell',
+    'soft drum',
     'quiet hallway',
     'paper airplane',
     'silver lantern',
-    'window chorus',
     'midnight bicycle',
     'electric calendar',
     'whispering volcano',
@@ -71,6 +72,16 @@ function getFallbackPackSummary(): WordPack {
     isUnlocked: true,
     createdAt: FALLBACK_WORD_PACK.createdAt,
   };
+}
+
+function isPackUsableByDefault(pack: WordPack) {
+  return pack.isFree || pack.isUnlocked !== false;
+}
+
+function getAccessibleWordsForPack(pack: WordPack, words: WordEntry[]) {
+  return pack.isFree
+    ? words
+    : filterWordsByMaxUnlockedDifficulty(words, pack.maxUnlockedDifficulty);
 }
 
 function getDifficultyBuckets(words: WordEntry[]) {
@@ -170,7 +181,7 @@ export function rememberPresentedPhrase(phrase: string) {
 
 export function getDefaultPackId(packs: WordPack[]) {
   return (
-    packs.find((pack) => pack.isFree || pack.isUnlocked !== false)?.id ??
+    packs.find(isPackUsableByDefault)?.id ??
     packs[0]?.id ??
     FALLBACK_WORD_PACK.id
   );
@@ -198,41 +209,68 @@ export async function loadRoundWordPacks(
       throw new Error('No word packs are available yet.');
     }
 
-    const selectedPackId = resolveWordPackId(packs, requestedPackId);
-
-    if (!selectedPackId) {
-      throw new Error('No word pack could be selected.');
-    }
-
-    const selectedPackBase = packs.find((pack) => pack.id === selectedPackId);
-    const selectedPack = await loadWordPackById(selectedPackId);
-
-    if (!selectedPack || !selectedPackBase) {
-      throw new Error('The selected pack could not be loaded.');
-    }
-
-    const accessibleWords = selectedPackBase.isFree
-      ? selectedPack.words
-      : filterWordsByMaxUnlockedDifficulty(
-          selectedPack.words,
-          selectedPackBase.maxUnlockedDifficulty,
-        );
-
-    const normalizedPack = normalizeWordPack({
-      ...selectedPack,
-      isUnlocked: selectedPackBase.isUnlocked !== false,
-      maxUnlockedDifficulty: selectedPackBase.maxUnlockedDifficulty ?? null,
-      words: accessibleWords,
+    const normalizedRequestedPackId = requestedPackId?.trim() ?? '';
+    const requestedPack = normalizedRequestedPackId
+      ? packs.find((pack) => pack.id === normalizedRequestedPackId) ?? null
+      : null;
+    const defaultPackId = resolveWordPackId(packs, null, {
+      isPackSelectable: isPackUsableByDefault,
     });
+    const candidatePackIds = [
+      ...(requestedPack ? [requestedPack.id] : []),
+      ...(defaultPackId ? [defaultPackId] : []),
+      ...packs.map((pack) => pack.id),
+    ].filter((packId, index, allPackIds) => allPackIds.indexOf(packId) === index);
 
-    if (!normalizedPack.words.length) {
-      throw new Error('The selected pack has no usable words.');
+    let firstSelectedPackWithWords: {
+      pack: WordPackWithWords;
+      packId: string;
+    } | null = null;
+
+    for (const candidatePackId of candidatePackIds) {
+      const selectedPackBase = packs.find((pack) => pack.id === candidatePackId);
+      const selectedPack = await loadWordPackById(candidatePackId);
+
+      if (!selectedPack || !selectedPackBase) {
+        continue;
+      }
+
+      const normalizedPack = normalizeWordPack({
+        ...selectedPack,
+        isUnlocked: selectedPackBase.isUnlocked !== false,
+        maxUnlockedDifficulty: selectedPackBase.maxUnlockedDifficulty ?? null,
+        words: getAccessibleWordsForPack(selectedPackBase, selectedPack.words),
+      });
+
+      if (requestedPack && selectedPackBase.id === requestedPack.id) {
+        return {
+          packs,
+          selectedPack: normalizedPack,
+          selectedPackId: selectedPackBase.id,
+          source: 'remote',
+          error:
+            normalizedPack.words.length === 0 && selectedPackBase.isUnlocked !== false
+              ? 'The selected pack has no usable words.'
+              : null,
+        };
+      }
+
+      if (!firstSelectedPackWithWords && normalizedPack.words.length > 0) {
+        firstSelectedPackWithWords = {
+          pack: normalizedPack,
+          packId: selectedPackBase.id,
+        };
+      }
+    }
+
+    if (!firstSelectedPackWithWords) {
+      throw new Error('No word pack could be selected.');
     }
 
     return {
       packs,
-      selectedPack: normalizedPack,
-      selectedPackId,
+      selectedPack: firstSelectedPackWithWords.pack,
+      selectedPackId: firstSelectedPackWithWords.packId,
       source: 'remote',
       error: null,
     };
@@ -244,8 +282,8 @@ export async function loadRoundWordPacks(
       source: 'fallback',
       error:
         error instanceof Error
-          ? error.message
-          : 'Unable to load word packs. Using the starter pack instead.',
+          ? `Unable to load the selected pack. Using the offline starter pack instead. ${error.message}`
+          : 'Unable to load word packs. Using the offline starter pack instead.',
     };
   }
 }
