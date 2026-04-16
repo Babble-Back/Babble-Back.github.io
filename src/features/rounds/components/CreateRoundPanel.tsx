@@ -122,7 +122,6 @@ export function CreateRoundPanel({
   const [selectedOption, setSelectedOption] = useState<WordOption | null>(null);
   const [availableOptions, setAvailableOptions] = useState<WordOption[]>([]);
   const [packsError, setPacksError] = useState<string | null>(null);
-  const [packInfo, setPackInfo] = useState<string | null>(null);
   const [isLoadingPacks, setIsLoadingPacks] = useState(true);
   const [isPurchasingPack, setIsPurchasingPack] = useState(false);
   const [packRefreshToken, setPackRefreshToken] = useState(0);
@@ -303,7 +302,6 @@ export function CreateRoundPanel({
       return;
     }
 
-    setPackInfo(null);
     setPacksError(null);
     setIsPurchasingPack(true);
 
@@ -311,9 +309,6 @@ export function CreateRoundPanel({
       const purchaseResult = await purchaseCampaignPackUnlock(selectedPack.id);
       setResourceBalance(purchaseResult.resourceType, purchaseResult.currentResourceBalance);
       setPackRefreshToken((currentValue) => currentValue + 1);
-      setPackInfo(
-        `${selectedPack.name}: ${nextPurchasableDifficulty} unlocked for ${purchaseResult.spentAmount} ${formatCampaignCurrencyLabel(selectedPackCurrency, purchaseResult.spentAmount)}.`,
-      );
     } catch (error) {
       setPacksError(
         error instanceof Error ? error.message : 'Unable to unlock this campaign pack right now.',
@@ -590,7 +585,6 @@ export function CreateRoundPanel({
       </div>
 
       <div className="stack">
-        {packInfo ? <div className="success-banner">{packInfo}</div> : null}
         {packsError ? <div className="error-banner">{packsError}</div> : null}
         {recorder.error ? <div className="error-banner">{recorder.error}</div> : null}
         {reverseError ? <div className="error-banner">{reverseError}</div> : null}

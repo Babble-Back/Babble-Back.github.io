@@ -28,7 +28,6 @@
   --neon-purple: #a93cff;
   --neon-purple-strong: #7a00ff;
   --danger: #cc5b69;
-  --success: #1f7f59;
   --shadow: 0 18px 40px rgba(29, 35, 54, 0.1);
   --shadow-strong: 0 24px 60px rgba(29, 35, 54, 0.16);
   --font-display: "Fraunces", "Georgia", serif;
@@ -494,8 +493,7 @@ p {
 }
 
 .error-banner,
-.info-banner,
-.success-banner {
+.info-banner {
   border-radius: 18px;
   padding: 12px 14px;
   border: 1px solid transparent;
@@ -512,12 +510,6 @@ p {
   background: rgba(77, 121, 255, 0.12);
   color: #244da6;
   border-color: rgba(77, 121, 255, 0.18);
-}
-
-.success-banner {
-  background: rgba(31, 127, 89, 0.12);
-  color: #1c6a4b;
-  border-color: rgba(31, 127, 89, 0.18);
 }
 
 .button-row {

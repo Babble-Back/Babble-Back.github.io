@@ -247,7 +247,6 @@ export function CampaignPanel({ currentUserId }: CampaignPanelProps) {
   const [stageChallengeId, setStageChallengeId] = useState<string | null>(null);
   const [isLoadingCampaign, setIsLoadingCampaign] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [info, setInfo] = useState<string | null>(null);
   const [originalRecording, setOriginalRecording] = useState<Blob | null>(null);
   const [guideRecording, setGuideRecording] = useState<Blob | null>(null);
   const [attemptRecording, setAttemptRecording] = useState<Blob | null>(null);
@@ -284,7 +283,6 @@ export function CampaignPanel({ currentUserId }: CampaignPanelProps) {
     setIsStartingAttempt(false);
     setScoreDebug(null);
     setError(null);
-    setInfo(null);
     setCoinPreview(null);
     originalRecorder.clearRecording();
     attemptRecorder.clearRecording();
@@ -485,7 +483,6 @@ export function CampaignPanel({ currentUserId }: CampaignPanelProps) {
 
   const openAttemptStep = useCallback(() => {
     setError(null);
-    setInfo(null);
     setAttemptRecording(null);
     setReversedAttemptRecording(null);
     setStars(0);
@@ -503,7 +500,6 @@ export function CampaignPanel({ currentUserId }: CampaignPanelProps) {
     }
 
     setError(null);
-    setInfo(null);
     setStage('guide');
   }, [guideRecording]);
 
@@ -569,7 +565,6 @@ export function CampaignPanel({ currentUserId }: CampaignPanelProps) {
           charged: attemptWasCharged,
           cost: retryCost,
         });
-        setInfo(attemptWasCharged ? `Retry charged: -${retryCost} BB Coins.` : null);
         setStage(nextStage);
       } catch (caughtError) {
         const nextError =
@@ -771,30 +766,6 @@ export function CampaignPanel({ currentUserId }: CampaignPanelProps) {
       }
       updateRewardPreview(rewardBaseCoinsRef.current);
       setStage('reward');
-
-      if (rewardResult.advanced) {
-        setInfo(
-          activeAttemptCharge?.charged
-            ? `Retry charged: -${activeAttemptCharge.cost} BB Coins. Challenge cleared for +${rewardResult.rewardAmount} BB Coins${
-                rewardResult.currencyResourceType
-                  ? ` and ${rewardResult.currencyRewardAmount} ${formatCampaignCurrencyLabel(campaignCurrency, rewardResult.currencyRewardAmount)}`
-                  : ''
-              }. The next egg is ready on the road.`
-            : `Challenge cleared for +${rewardResult.rewardAmount} BB Coins${
-                rewardResult.currencyResourceType
-                  ? ` and ${rewardResult.currencyRewardAmount} ${formatCampaignCurrencyLabel(campaignCurrency, rewardResult.currencyRewardAmount)}`
-                  : ''
-              }. The next egg is ready on the road.`,
-        );
-      } else if (activeAttemptCharge?.charged) {
-        setInfo(
-          `Retry charged: -${activeAttemptCharge.cost} BB Coins. You earned +${rewardResult.rewardAmount} BB Coins, but you still need 3 stars to unlock the next egg.`,
-        );
-      } else {
-        setInfo(
-          `You earned +${rewardResult.rewardAmount} BB Coins, but you still need 3 stars to unlock the next egg.`,
-        );
-      }
 
       if (attemptScoreResult.debug) {
         if (originalRecording && guideRecording) {
@@ -1240,7 +1211,6 @@ export function CampaignPanel({ currentUserId }: CampaignPanelProps) {
 
         {stage === 'overview' ? (
           <div className="campaign-road-page">
-            {info ? <div className="success-banner">{info}</div> : null}
             {error ? <div className="error-banner">{error}</div> : null}
             {asrWarmError ? <div className="error-banner">{asrWarmError}</div> : null}
 
@@ -1345,7 +1315,6 @@ export function CampaignPanel({ currentUserId }: CampaignPanelProps) {
           </div>
         ) : (
           <div className="campaign-play-page">
-            {info ? <div className="success-banner">{info}</div> : null}
             {error ? <div className="error-banner">{error}</div> : null}
             {asrWarmError ? <div className="error-banner">{asrWarmError}</div> : null}
             {isScorerWarming && stage !== 'processing' ? (

@@ -111,7 +111,6 @@ export function HomePanel({
   const [isAddingFriend, setIsAddingFriend] = useState(false);
   const [friendUsername, setFriendUsername] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const [info, setInfo] = useState<string | null>(null);
   const [isSending, setIsSending] = useState(false);
   const [activeRequestId, setActiveRequestId] = useState<string | null>(null);
   const [pullDistance, setPullDistance] = useState(0);
@@ -121,20 +120,17 @@ export function HomePanel({
 
   const handleAddFriendClick = () => {
     setError(null);
-    setInfo(null);
     setIsAddingFriend((current) => !current);
   };
 
   const handleSendFriendRequest = async () => {
     setError(null);
-    setInfo(null);
     setIsSending(true);
 
     try {
       await sendFriendRequestByUsername(friendUsername);
       setFriendUsername('');
       setIsAddingFriend(false);
-      setInfo('Friend request sent.');
       await onRefresh?.();
     } catch (caughtError) {
       setError(
@@ -149,12 +145,10 @@ export function HomePanel({
 
   const handleRespondToRequest = async (requestId: string, accept: boolean) => {
     setError(null);
-    setInfo(null);
     setActiveRequestId(requestId);
 
     try {
       await respondToFriendRequest(requestId, accept);
-      setInfo(accept ? 'Friend request accepted.' : 'Friend request rejected.');
       await onRefresh?.();
     } catch (caughtError) {
       setError(
@@ -169,7 +163,6 @@ export function HomePanel({
 
   const handleRowAction = async (row: HomeTableRow) => {
     setError(null);
-    setInfo(null);
 
     if (row.actionKind === 'start_game') {
       if (row.friendId && onCreateGame) {
@@ -426,7 +419,6 @@ export function HomePanel({
         ) : null}
 
         {error ? <div className="error-banner">{error}</div> : null}
-        {info ? <div className="success-banner">{info}</div> : null}
 
         <div className="home-footer">
           <div className="button-row">

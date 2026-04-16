@@ -167,7 +167,6 @@ export function PlayRoundPanel({
   } = useCoins();
   const [guess, setGuess] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const [info, setInfo] = useState<string | null>(null);
   const [isSavingAttempt, setIsSavingAttempt] = useState(false);
   const [isSubmittingGuess, setIsSubmittingGuess] = useState(false);
   const [isArchiving, setIsArchiving] = useState(false);
@@ -188,7 +187,6 @@ export function PlayRoundPanel({
   useEffect(() => {
     setGuess(round?.guess ?? '');
     setError(null);
-    setInfo(null);
     setHasConfirmedListen(false);
     recorder.clearRecording();
     lastSavedAttemptBlobRef.current = null;
@@ -348,18 +346,6 @@ export function PlayRoundPanel({
       setIsClaimingReward(false);
       setCoinPreview(null);
       clearRewardAnimationState(currentUserId, rewardToSettle.roundId);
-      setInfo(
-        options.claimedNow
-          ? `Reward claimed. +${rewardToSettle.rewardAmount} BB Coins${
-              rewardToSettle.bonusResourceType && rewardCampaignCurrency
-                ? ` and ${rewardToSettle.bonusRewardAmount} ${formatCampaignCurrencyLabel(
-                    rewardCampaignCurrency,
-                    rewardToSettle.bonusRewardAmount,
-                  )}`
-                : ''
-            }.`
-          : 'Reward already settled for this round.',
-      );
     },
     [
       currentUserId,
@@ -430,7 +416,6 @@ export function PlayRoundPanel({
     }
 
     setError(null);
-    setInfo(null);
     setIsSavingAttempt(true);
 
     try {
@@ -459,7 +444,6 @@ export function PlayRoundPanel({
       }));
       lastSavedAttemptBlobRef.current = attemptBlob;
       recorder.clearRecording();
-      setInfo('Take saved. Your guess step is open now.');
     } catch (caughtError) {
       if (!cancelled?.()) {
         setError(
@@ -772,7 +756,6 @@ export function PlayRoundPanel({
     }
 
     setError(null);
-    setInfo(null);
     setIsSubmittingGuess(true);
 
     try {
@@ -790,7 +773,6 @@ export function PlayRoundPanel({
         attemptAudioBlob: currentRound.attemptAudioBlob,
         attemptReversedBlob: currentRound.attemptReversedBlob,
       }));
-      setInfo('Score revealed. Your BB Coin reward will lock in on this results screen.');
     } catch (caughtError) {
       setError(
         caughtError instanceof Error ? caughtError.message : 'Unable to submit the guess.',
@@ -811,7 +793,6 @@ export function PlayRoundPanel({
       }
 
       setError(null);
-      setInfo(null);
       setIsAuthorizingListenPlayback(true);
 
       try {
@@ -819,10 +800,6 @@ export function PlayRoundPanel({
         setListenState(nextListenState);
         setCoinBalance(nextListenState.currentBalance);
         setCoinPreview(null);
-
-        if (nextListenState.charged) {
-          setInfo(`Extra replay unlocked. -${nextListenState.nextPlayCost} BB Coins.`);
-        }
 
         return true;
       } catch (caughtError) {
@@ -850,7 +827,6 @@ export function PlayRoundPanel({
     }
 
     setError(null);
-    setInfo(null);
 
     if (roundReward && !roundReward.claimed) {
       const didClaimReward = await finalizePendingRewardClaim(roundReward);
@@ -869,7 +845,6 @@ export function PlayRoundPanel({
     }
 
     setError(null);
-    setInfo(null);
     setIsArchiving(true);
 
     try {
@@ -1185,7 +1160,6 @@ export function PlayRoundPanel({
       <div className="stack">
         {recorder.error ? <div className="error-banner">{recorder.error}</div> : null}
         {error ? <div className="error-banner">{error}</div> : null}
-        {info ? <div className="success-banner">{info}</div> : null}
       </div>
     </section>
   );
