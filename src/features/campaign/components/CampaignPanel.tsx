@@ -869,9 +869,11 @@ export function CampaignPanel({ currentUserId }: CampaignPanelProps) {
         <p><strong>Combined numerator:</strong> {scoreDebug.combinedNumerator}</p>
         <p><strong>Average log prob / raw score:</strong> {scoreDebug.averageLogProb}</p>
         <p><strong>Target phrase:</strong> {scoreDebug.targetPhrase}</p>
+        <p><strong>Raw ASR prediction:</strong> {scoreDebug.rawPredictionText || 'none'}</p>
         <p><strong>ASR token count:</strong> {scoreDebug.asrTokenCount}</p>
         <p><strong>ASR token ids:</strong> {scoreDebug.asrTokenIds.join(', ') || 'none'}</p>
         <p><strong>ASR token texts:</strong> {scoreDebug.asrTokenTexts.join(' | ') || 'none'}</p>
+        <p><strong>Raw ASR prediction token ids:</strong> {scoreDebug.rawPredictionTokenIds.join(', ') || 'none'}</p>
         <p><strong>LM token count:</strong> {scoreDebug.lmTokenCount}</p>
         <p><strong>LM token ids:</strong> {scoreDebug.lmTokenIds.join(', ') || 'none'}</p>
         <p><strong>LM token texts:</strong> {scoreDebug.lmTokenTexts.join(' | ') || 'none'}</p>

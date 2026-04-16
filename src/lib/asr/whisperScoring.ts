@@ -36,10 +36,18 @@ export interface WhisperStepScore {
 export interface WhisperPhraseScoreDetails {
   averageLogProb: number;
   decodeSteps: number;
+  rawPredictionText: string | null;
+  rawPredictionTokenIds: number[];
   rawLogLikelihood: number;
   targetTokenIds: number[];
   targetStepScores: WhisperStepScore[];
 }
+
+type GeneratedSequenceTensor = Tensor & {
+  [index: number]: {
+    tolist: () => Array<bigint | number>;
+  };
+};
 
 class CaptureLogitsProcessor extends LogitsProcessor {
   rows: Float32Array[] = [];
@@ -71,6 +79,16 @@ function buildGenerationConfig(maxNewTokens: number) {
     max_new_tokens: maxNewTokens,
     output_scores: true,
     return_dict_in_generate: true,
+    return_timestamps: false,
+    task: SCORE_TASK,
+  };
+}
+
+function buildTranscriptionConfig(maxNewTokens: number) {
+  return {
+    do_sample: false,
+    language: SCORE_LANGUAGE,
+    max_new_tokens: maxNewTokens,
     return_timestamps: false,
     task: SCORE_TASK,
   };
@@ -225,6 +243,28 @@ async function getPromptTokenIds() {
   return whisperModel._retrieve_init_tokens(generationConfig);
 }
 
+async function transcribeAudioWithWhisper(audio: Float32Array) {
+  const [{ model, tokenizer }, inputFeatures] = await Promise.all([
+    loadWhisperModel(),
+    encodeInputFeatures(audio),
+  ]);
+  const generated = (await model.generate({
+    inputs: inputFeatures,
+    ...buildTranscriptionConfig(MAX_GENERATED_TOKENS),
+  })) as GeneratedSequenceTensor;
+  const rawPredictionTokenIds = (generated[0]?.tolist() ?? []).map((tokenId) =>
+    Number(tokenId),
+  );
+  const [rawPredictionText = ''] = tokenizer.batch_decode([rawPredictionTokenIds], {
+    skip_special_tokens: true,
+  });
+
+  return {
+    rawPredictionText: rawPredictionText.trim() || null,
+    rawPredictionTokenIds,
+  };
+}
+
 async function scoreTargetTokensWithGeneration(
   inputFeatures: Tensor,
   promptTokenIds: number[],
@@ -274,8 +314,12 @@ export async function warmWhisperScorer() {
 export async function scoreWhisperPhraseAudio(
   audio: Float32Array,
   phrase: string,
+  options?: {
+    includeRawPrediction?: boolean;
+  },
 ): Promise<WhisperPhraseScoreDetails> {
   const scoringText = toWhisperScoringText(phrase);
+  const includeRawPrediction = options?.includeRawPrediction ?? false;
 
   if (
     !audio.length ||
@@ -286,16 +330,24 @@ export async function scoreWhisperPhraseAudio(
     return {
       averageLogProb: ZERO_SCORE,
       decodeSteps: 0,
+      rawPredictionText: null,
+      rawPredictionTokenIds: [],
       rawLogLikelihood: ZERO_SCORE,
       targetTokenIds: [],
       targetStepScores: [],
     };
   }
 
-  const [{ tokenizer }, inputFeatures, promptTokenIds] = await Promise.all([
+  const [{ tokenizer }, inputFeatures, promptTokenIds, rawPrediction] = await Promise.all([
     loadWhisperModel(),
     encodeInputFeatures(audio),
     getPromptTokenIds(),
+    includeRawPrediction
+      ? transcribeAudioWithWhisper(audio)
+      : Promise.resolve({
+          rawPredictionText: null,
+          rawPredictionTokenIds: [],
+        }),
   ]);
   const targetTokenIds = tokenizer.encode(scoringText, {
     add_special_tokens: false,
@@ -305,6 +357,8 @@ export async function scoreWhisperPhraseAudio(
     return {
       averageLogProb: ZERO_SCORE,
       decodeSteps: 0,
+      rawPredictionText: rawPrediction.rawPredictionText,
+      rawPredictionTokenIds: rawPrediction.rawPredictionTokenIds,
       rawLogLikelihood: ZERO_SCORE,
       targetTokenIds: [],
       targetStepScores: [],
@@ -320,6 +374,8 @@ export async function scoreWhisperPhraseAudio(
   return {
     averageLogProb: targetScore.averageLogProb,
     decodeSteps: targetScore.targetStepScores.length,
+    rawPredictionText: rawPrediction.rawPredictionText,
+    rawPredictionTokenIds: rawPrediction.rawPredictionTokenIds,
     rawLogLikelihood: targetScore.rawLogLikelihood,
     targetTokenIds,
     targetStepScores: targetScore.targetStepScores,

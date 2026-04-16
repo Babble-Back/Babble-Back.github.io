@@ -61,6 +61,8 @@ export interface CampaignAttemptScoreDebug {
   logPAsr: number;
   logPLm: number;
   normalizedCampaignScore: number;
+  rawPredictionText: string | null;
+  rawPredictionTokenIds: number[];
   scoredText: string;
   scoreCalculation: string;
   scoreFormula: string;
@@ -108,6 +110,8 @@ function zeroScoreResult(
           logPAsr: Number.NEGATIVE_INFINITY,
           logPLm: 0,
           normalizedCampaignScore: 0,
+          rawPredictionText: null,
+          rawPredictionTokenIds: [],
           scoredText: toCampaignPhraseScoringText(targetPhrase),
           scoreCalculation: 'score = (logP_asr - lm_weight * logP_lm) / len(text)',
           scoreFormula:
@@ -156,15 +160,17 @@ export async function scoreCampaignAttempt({
 
   try {
     const scoredText = toCampaignPhraseScoringText(targetPhrase);
+    const shouldLogDebug = shouldLogCampaignWhisperScores();
     reversedAttemptBlob = reverseBeforeScoring
       ? await reverseAudioBlob(attemptBlob)
       : attemptBlob;
     const processedAttemptAudio = await preprocessAudioBlob(reversedAttemptBlob);
-    const whisperScore = await scoreWhisperPhraseAudio(processedAttemptAudio, targetPhrase);
+    const whisperScore = await scoreWhisperPhraseAudio(processedAttemptAudio, targetPhrase, {
+      includeRawPrediction: shouldLogDebug,
+    });
     const combinedScore = combineCampaignLmScore(whisperScore, lmPrior, scoredText, scoringConfig);
     const normalizedCampaignScore = normalizeCampaignLogScore(combinedScore.averageLogProb);
     const stars = getCampaignStars(combinedScore.debug.finalScore);
-    const shouldLogDebug = shouldLogCampaignWhisperScores();
     const debug = shouldLogDebug
       ? {
           asrTokenCount: combinedScore.debug.asrTokenCount,
@@ -183,6 +189,8 @@ export async function scoreCampaignAttempt({
           logPAsr: combinedScore.debug.logPAsr,
           logPLm: combinedScore.debug.logPLm,
           normalizedCampaignScore,
+          rawPredictionText: whisperScore.rawPredictionText,
+          rawPredictionTokenIds: whisperScore.rawPredictionTokenIds,
           scoredText: combinedScore.debug.scoredText,
           scoreCalculation: `score = (${combinedScore.debug.logPAsr.toFixed(6)} - (${combinedScore.debug.lmWeight.toFixed(6)} * ${combinedScore.debug.logPLm.toFixed(6)})) / ${combinedScore.debug.textLen} = ${combinedScore.averageLogProb.toFixed(6)}`,
           scoreFormula:
@@ -204,6 +212,12 @@ export async function scoreCampaignAttempt({
     if (debug) {
       console.groupCollapsed(`[CampaignWhisperScore][${sampleLabel}]`);
       console.info('[CampaignWhisperScore][Summary]', debug);
+      console.info('[CampaignWhisperScore][RawPrediction]', {
+        sampleLabel: debug.sampleLabel,
+        rawPredictionText: debug.rawPredictionText,
+        rawPredictionTokenIds: debug.rawPredictionTokenIds,
+        targetPhrase: debug.targetPhrase,
+      });
       console.info('[CampaignWhisperScore][Formula]', debug.scoreFormula);
       console.info('[CampaignWhisperScore][Calculation]', debug.scoreCalculation);
       console.info('[CampaignWhisperScore][TokenizerDifference]', debug.tokenizerDifferenceExample);
