@@ -18,3 +18,26 @@ export const supabase: SupabaseClient | null =
         },
       })
     : null;
+
+interface SupabaseLikeError {
+  message?: string;
+  details?: string;
+  hint?: string;
+  code?: string;
+}
+
+export function formatSupabaseError(error: unknown, fallbackMessage: string) {
+  if (!error || typeof error !== 'object') {
+    return fallbackMessage;
+  }
+
+  const nextError = error as SupabaseLikeError;
+  const parts = [
+    nextError.message?.trim(),
+    nextError.details?.trim(),
+    nextError.hint?.trim(),
+    nextError.code ? `code: ${nextError.code}` : null,
+  ].filter((part): part is string => Boolean(part));
+
+  return parts.length > 0 ? parts.join(' | ') : fallbackMessage;
+}

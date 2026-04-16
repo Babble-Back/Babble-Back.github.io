@@ -5,7 +5,7 @@ import type { RoundStarCount } from '../features/rounds/types';
 import { scoreGuess } from '../features/rounds/utils';
 import { computeDifficulty, normalizePackText, type WordDifficulty } from '../utils/difficulty';
 import { sendClipSentPushNotification } from './push';
-import { supabase, supabaseConfigError } from './supabase';
+import { formatSupabaseError, supabase, supabaseConfigError } from './supabase';
 import { createSignedAudioUrl, uploadAudio } from './storage/uploadAudio';
 
 const ROUND_COLUMNS = [
@@ -326,7 +326,11 @@ export async function submitRoundGuess(
   });
 
   if (error || !data) {
-    throw new Error(`Unable to submit the guess: ${error?.message || 'Unknown error.'}`);
+    throw new Error(
+      `Unable to submit the guess: ${
+        error ? formatSupabaseError(error, 'Unknown Supabase error.') : 'Unknown error.'
+      }`,
+    );
   }
 
   return mapRoundRow(data as unknown as RoundRow);
@@ -339,7 +343,12 @@ export async function markRoundResultsViewed(roundId: string): Promise<void> {
   });
 
   if (error) {
-    throw new Error(`Unable to mark the round results as viewed: ${error.message}`);
+    throw new Error(
+      `Unable to mark the round results as viewed: ${formatSupabaseError(
+        error,
+        'Unknown Supabase error.',
+      )}`,
+    );
   }
 }
 
@@ -350,7 +359,12 @@ export async function getRoundListenState(roundId: string): Promise<RoundListenS
   });
 
   if (error) {
-    throw new Error(`Unable to load the round listen state: ${error.message}`);
+    throw new Error(
+      `Unable to load the round listen state: ${formatSupabaseError(
+        error,
+        'Unknown Supabase error.',
+      )}`,
+    );
   }
 
   const listenStateRow = (Array.isArray(data) ? data[0] : data) as RoundListenStateRow | null;
@@ -369,7 +383,12 @@ export async function consumeRoundListen(roundId: string): Promise<RoundListenSt
   });
 
   if (error) {
-    throw new Error(`Unable to authorize round playback: ${error.message}`);
+    throw new Error(
+      `Unable to authorize round playback: ${formatSupabaseError(
+        error,
+        'Unknown Supabase error.',
+      )}`,
+    );
   }
 
   const listenStateRow = (Array.isArray(data) ? data[0] : data) as RoundListenStateRow | null;
@@ -420,7 +439,12 @@ export async function archiveCompletedRound(
   });
 
   if (error) {
-    throw new Error(`Unable to archive the completed round: ${error.message}`);
+    throw new Error(
+      `Unable to archive the completed round: ${formatSupabaseError(
+        error,
+        'Unknown Supabase error.',
+      )}`,
+    );
   }
 
   const archivedRow = ((data as ArchiveCompletedRoundRow[] | null) ?? [])[0];

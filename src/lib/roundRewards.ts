@@ -1,5 +1,5 @@
 import type { RoundReward } from '../features/rounds/types';
-import { supabase, supabaseConfigError } from './supabase';
+import { formatSupabaseError, supabase, supabaseConfigError } from './supabase';
 
 interface RoundRewardRow {
   id: string;
@@ -64,7 +64,12 @@ export async function getRoundReward(userId: string, roundId: string) {
     .maybeSingle<RoundRewardRow>();
 
   if (error) {
-    throw new Error(`Unable to load the round reward: ${error.message}`);
+    throw new Error(
+      `Unable to load the round reward: ${formatSupabaseError(
+        error,
+        'Unknown Supabase error.',
+      )}`,
+    );
   }
 
   return data ? mapRoundRewardRow(data) : null;
@@ -90,7 +95,12 @@ export async function claimReward(userId: string, roundId: string) {
   });
 
   if (error) {
-    throw new Error(`Unable to claim the round reward: ${error.message}`);
+    throw new Error(
+      `Unable to claim the round reward: ${formatSupabaseError(
+        error,
+        'Unknown Supabase error.',
+      )}`,
+    );
   }
 
   const claimedRewardRow = (Array.isArray(data) ? data[0] : data) as ClaimRoundRewardRow | null;
