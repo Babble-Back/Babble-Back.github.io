@@ -16,7 +16,7 @@ export interface CampaignScoringConfig {
 
 export const DEFAULT_CAMPAIGN_SCORING_CONFIG: CampaignScoringConfig = {
   firstTokenAddAmount: 0.35,
-  lmWeight: 0.2,
+  lmWeight: 0.1,
   probabilityEpsilon: 1e-6,
 };
 

@@ -885,7 +885,7 @@ export function CampaignPanel({ currentUserId }: CampaignPanelProps) {
         <p><strong>Raw Whisper log-likelihood:</strong> {scoreDebug.rawWhisperLogLikelihood}</p>
         <p><strong>Normalized campaign score:</strong> {scoreDebug.normalizedCampaignScore}</p>
         <p><strong>Whole-string score:</strong> {scoreDebug.finalScore}</p>
-        <p><strong>Star thresholds:</strong> 1 star: [-2, -1.66), 2 stars: [-1.66, -1.3), 3 stars: &gt;= -1.3</p>
+        <p><strong>Star thresholds:</strong> 0 stars: &lt; -1.58, 1 star: [-1.58, -1.4), 2 stars: [-1.4, -1.13), 3 stars: &gt;= -1.13</p>
         <p><strong>LM weight:</strong> {scoreDebug.lmWeight}</p>
         <p><strong>LM priors used:</strong> {scoreDebug.usedLmPriors ? 'yes' : 'no'}</p>
         <p><strong>Warnings:</strong> {scoreDebug.warnings.join(' | ') || 'none'}</p>

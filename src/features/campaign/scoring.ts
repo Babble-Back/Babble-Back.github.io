@@ -1,8 +1,8 @@
 import type { WordDifficulty } from '../../utils/difficulty';
 
-const ONE_STAR_MIN_SCORE = -2;
-const TWO_STAR_MIN_SCORE = -1.66;
-const THREE_STAR_MIN_SCORE = -1.3;
+const ONE_STAR_MIN_SCORE = -1.58;
+const TWO_STAR_MIN_SCORE = -1.4;
+const THREE_STAR_MIN_SCORE = -1.13;
 const MIN_LOG_PROBABILITY = -12;
 
 export function getCampaignStars(score: number) {

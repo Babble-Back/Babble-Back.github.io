@@ -3,7 +3,7 @@ version = 1
 name = "Babble-Back.github.io"
 
 [setup]
-script = "winget install BurntSushi.ripgrep.MSVC"
+script = "winget install --id BurntSushi.ripgrep.MSVC --source winget"
 
 [[actions]]
 name = "Run"
