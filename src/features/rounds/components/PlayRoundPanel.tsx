@@ -114,6 +114,19 @@ function formatListenLabel(count: number) {
   return `${count} listen${count === 1 ? '' : 's'}`;
 }
 
+function logRewardDebug(message: string, details?: Record<string, unknown>) {
+  if (!import.meta.env.DEV) {
+    return;
+  }
+
+  if (details) {
+    console.info('[reward-debug]', message, details);
+    return;
+  }
+
+  console.info('[reward-debug]', message);
+}
+
 function RewardPlaybackButton({
   blob,
   remoteUrl,
@@ -529,10 +542,24 @@ export function PlayRoundPanel({
 
   useEffect(() => {
     if (!round || round.status !== 'complete' || !currentUserId || isLoadingCoins || !isRewardStepOpen) {
+      if (round?.status === 'complete') {
+        logRewardDebug('Skipped reward load before fetch.', {
+          currentUserId,
+          isLoadingCoins,
+          isRewardStepOpen,
+          loadedRewardRoundId: loadedRewardRoundIdRef.current,
+          roundId: round.id,
+        });
+      }
+
       return;
     }
 
     if (loadedRewardRoundIdRef.current === round.id) {
+      logRewardDebug('Skipped reward load because the round is already marked as loaded.', {
+        loadedRewardRoundId: loadedRewardRoundIdRef.current,
+        roundId: round.id,
+      });
       return;
     }
 
@@ -541,18 +568,41 @@ export function PlayRoundPanel({
     let didFinishLoading = false;
 
     const loadRoundReward = async () => {
+      logRewardDebug('Starting reward load.', {
+        coins,
+        currentUserId,
+        roundId: round.id,
+      });
       setIsLoadingReward(true);
 
       try {
         try {
           await markRoundResultsViewed(round.id);
+          logRewardDebug('Marked completed round as viewed.', {
+            roundId: round.id,
+          });
         } catch (markViewedError) {
           console.warn('Unable to mark the completed round as viewed.', markViewedError);
+          logRewardDebug('Failed to mark completed round as viewed.', {
+            error:
+              markViewedError instanceof Error ? markViewedError.message : String(markViewedError),
+            roundId: round.id,
+          });
         }
 
         const reward = await getRoundReward(currentUserId, round.id);
+        logRewardDebug('Reward query completed.', {
+          rewardClaimed: reward?.claimed ?? null,
+          rewardId: reward?.id ?? null,
+          rewardRoundId: reward?.roundId ?? null,
+          rewardValue: reward?.rewardAmount ?? null,
+          roundId: round.id,
+        });
 
         if (cancelled) {
+          logRewardDebug('Discarded reward result because the effect was cancelled.', {
+            roundId: round.id,
+          });
           return;
         }
 
@@ -585,6 +635,10 @@ export function PlayRoundPanel({
         setIsAnimatingReward(true);
       } catch (caughtError) {
         if (!cancelled) {
+          logRewardDebug('Reward load failed.', {
+            error: caughtError instanceof Error ? caughtError.message : String(caughtError),
+            roundId: round.id,
+          });
           setError(
             caughtError instanceof Error
               ? caughtError.message
@@ -603,9 +657,17 @@ export function PlayRoundPanel({
 
     return () => {
       cancelled = true;
+      logRewardDebug('Reward load cleanup ran.', {
+        didFinishLoading,
+        loadedRewardRoundId: loadedRewardRoundIdRef.current,
+        roundId: round.id,
+      });
 
       if (!didFinishLoading && loadedRewardRoundIdRef.current === round.id) {
         loadedRewardRoundIdRef.current = null;
+        logRewardDebug('Cleared loaded reward round id after cancellation.', {
+          roundId: round.id,
+        });
       }
     };
   }, [
