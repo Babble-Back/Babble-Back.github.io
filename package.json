@@ -1,0 +1,30 @@
+{
+  "name": "talkback",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0 --strictPort",
+    "update:sw-version": "node scripts/update-sw-version.js",
+    "build": "npm run update:sw-version && tsc -b && vite build",
+    "generate:pack": "tsx scripts/generatePack.ts",
+    "generate:campaign": "tsx scripts/generateCampaign.ts",
+    "seed:easter-campaign": "tsx scripts/seedEasterCampaign.ts",
+    "preview": "vite preview --host 0.0.0.0 --strictPort"
+  },
+  "dependencies": {
+    "@huggingface/transformers": "^3.8.1",
+    "@supabase/supabase-js": "^2.100.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "syllable": "^5.0.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "tsx": "^4.21.0",
+    "typescript": "^5.7.3",
+    "vite": "^6.0.7"
+  }
+}
