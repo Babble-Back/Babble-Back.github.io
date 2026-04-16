@@ -104,9 +104,7 @@ export function InventoryPanel({ onBack }: InventoryPanelProps) {
         </button>
 
         <div className="round-screen-copy">
-          <div className="eyebrow">Inventory</div>
-          <h2>Your currencies</h2>
-          <p>BB Coins stay here alongside campaign currencies like eggs as more events are added.</p>
+          <h2>Inventory</h2>
         </div>
       </div>
 
@@ -125,17 +123,13 @@ export function InventoryPanel({ onBack }: InventoryPanelProps) {
                 className={`inventory-card${card.isPrimary ? ' inventory-card-primary' : ''}`}
                 key={card.resourceType}
               >
-                <div className="inventory-card-header">
+                <div className="inventory-card-top">
                   <span className="inventory-card-icon">
                     {card.iconUrl ? <img alt="" aria-hidden="true" src={card.iconUrl} /> : null}
                   </span>
-                  <div>
-                    <div className="eyebrow">{card.isPrimary ? 'Main Wallet' : 'Campaign Currency'}</div>
-                    <h3>{card.name}</h3>
-                  </div>
+                  <strong className="inventory-card-amount">{card.amount.toLocaleString()}</strong>
                 </div>
-
-                <strong className="inventory-card-amount">{card.amount.toLocaleString()}</strong>
+                <h3>{card.name}</h3>
               </article>
             ))}
           </div>

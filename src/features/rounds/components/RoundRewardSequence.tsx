@@ -172,13 +172,12 @@ export function RoundRewardSequence({
   const isSequenceFinished = elapsedMs >= totalDurationMs;
   const targetPulseScale = 0.94 + burstProgress * 0.32;
   const particles = useMemo(() => createParticleSpecs(reward.rewardAmount), [reward.rewardAmount]);
+  const activeBonusReward = bonusReward && bonusReward.amount > 0 ? bonusReward : null;
   const displayedCoinTotal =
     reward.rewardAmount === 0
       ? baseCoins
       : baseCoins + Math.round(reward.rewardAmount * easeOutCubic(burstProgress));
-  const displayedBonusAmount = bonusReward
-    ? Math.round(bonusReward.amount * easeOutCubic(burstProgress))
-    : 0;
+  const displayedBonusAmount = activeBonusReward ? Math.max(0, activeBonusReward.amount) : 0;
   const starEntryProgresses = useMemo(
     () =>
       Array.from({ length: MAX_STARS }, (_, index) =>
@@ -430,27 +429,22 @@ export function RoundRewardSequence({
               </strong>
             </div>
 
-            {bonusReward ? (
+            {activeBonusReward ? (
               <div
-                aria-label={`${displayedBonusAmount.toLocaleString()} ${bonusReward.label}`}
+                aria-label={`${displayedBonusAmount.toLocaleString()} ${activeBonusReward.label}`}
                 className="reward-sequence-bonus"
-                style={{
-                  opacity: burstProgress === 0 && !startCompleted ? 0 : 1,
-                  transform: `scale(${0.94 + easeOutCubic(burstProgress) * 0.06})`,
-                }}
               >
                 <span className="reward-sequence-bonus-icon-anchor">
                   <img
                     alt=""
                     aria-hidden="true"
                     className="reward-sequence-bonus-icon"
-                    src={bonusReward.iconSrc}
+                    src={activeBonusReward.iconSrc}
                   />
                 </span>
                 <strong className="reward-sequence-bonus-value">
-                  {Math.max(0, startCompleted ? bonusReward.amount : displayedBonusAmount).toLocaleString()}
+                  {displayedBonusAmount.toLocaleString()}
                 </strong>
-                <span className="reward-sequence-bonus-label">{bonusReward.label}</span>
               </div>
             ) : null}
           </div>
