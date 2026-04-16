@@ -659,18 +659,21 @@ export function CampaignPanel({ currentUserId }: CampaignPanelProps) {
     setError(null);
 
     try {
+      const lmPrior = {
+        modelName: activeChallenge.lmModelName,
+        ready: activeChallenge.lmReady,
+        tokenCount: activeChallenge.lmTokenCount,
+        tokenIds: activeChallenge.lmTokenIds,
+        tokenTexts: activeChallenge.lmTokenTexts,
+        tokenProbs: activeChallenge.lmTokenProbs,
+        tokenLogProbs: activeChallenge.lmTokenLogProbs,
+      };
+      const scoringConfig = readCampaignScoringConfig(campaignState?.campaign.config);
       const attemptScoreResult = await scoreCampaignAttempt({
         attemptBlob: attemptRecording,
-        lmPrior: {
-          modelName: activeChallenge.lmModelName,
-          ready: activeChallenge.lmReady,
-          tokenCount: activeChallenge.lmTokenCount,
-          tokenIds: activeChallenge.lmTokenIds,
-          tokenTexts: activeChallenge.lmTokenTexts,
-          tokenProbs: activeChallenge.lmTokenProbs,
-          tokenLogProbs: activeChallenge.lmTokenLogProbs,
-        },
-        scoringConfig: readCampaignScoringConfig(campaignState?.campaign.config),
+        debugLabel: 'Candidate attempt sample',
+        lmPrior,
+        scoringConfig,
         targetPhrase: activeChallenge.phrase,
       });
       const nextReversedAttempt = attemptScoreResult.reversedAttemptBlob;
@@ -792,6 +795,38 @@ export function CampaignPanel({ currentUserId }: CampaignPanelProps) {
           `You earned +${rewardResult.rewardAmount} BB Coins, but you still need 3 stars to unlock the next egg.`,
         );
       }
+
+      if (attemptScoreResult.debug) {
+        if (originalRecording && guideRecording) {
+          void Promise.all([
+            scoreCampaignAttempt({
+              attemptBlob: originalRecording,
+              debugLabel: 'Clean positive sample (forward correct phrase)',
+              lmPrior,
+              reverseBeforeScoring: false,
+              scoringConfig,
+              targetPhrase: activeChallenge.phrase,
+            }),
+            scoreCampaignAttempt({
+              attemptBlob: guideRecording,
+              debugLabel: 'Negative sample (reversed correct phrase)',
+              lmPrior,
+              reverseBeforeScoring: false,
+              scoringConfig,
+              targetPhrase: activeChallenge.phrase,
+            }),
+          ]).catch((debugError) => {
+            console.warn(
+              '[CampaignWhisperScore][ReferenceSamples] Unable to score debug reference samples.',
+              debugError,
+            );
+          });
+        } else {
+          console.info(
+            '[CampaignWhisperScore][ReferenceSamples] Clean positive and reversed negative reference samples are unavailable for this challenge flow.',
+          );
+        }
+      }
     } catch (caughtError) {
       setError(
         caughtError instanceof Error
@@ -807,6 +842,8 @@ export function CampaignPanel({ currentUserId }: CampaignPanelProps) {
     coins,
     refreshCampaign,
     refreshCoins,
+    guideRecording,
+    originalRecording,
     setCoinBalance,
     setCoinPreview,
     setResourceBalance,
@@ -825,26 +862,28 @@ export function CampaignPanel({ currentUserId }: CampaignPanelProps) {
         <summary>Campaign scorer debug</summary>
         <p><strong>Formula:</strong> {scoreDebug.scoreFormula}</p>
         <p><strong>Calculation:</strong> {scoreDebug.scoreCalculation}</p>
-        <p><strong>Average log prob:</strong> {scoreDebug.averageLogProb}</p>
+        <p><strong>Scored text:</strong> {scoreDebug.scoredText}</p>
+        <p><strong>Text len:</strong> {scoreDebug.textLen}</p>
+        <p><strong>logP_asr:</strong> {scoreDebug.logPAsr}</p>
+        <p><strong>logP_lm:</strong> {scoreDebug.logPLm}</p>
+        <p><strong>Combined numerator:</strong> {scoreDebug.combinedNumerator}</p>
+        <p><strong>Average log prob / raw score:</strong> {scoreDebug.averageLogProb}</p>
         <p><strong>Target phrase:</strong> {scoreDebug.targetPhrase}</p>
-        <p><strong>Whisper token ids:</strong> {scoreDebug.whisperTokenIds.join(', ') || 'none'}</p>
-        <p><strong>Whisper token texts:</strong> {scoreDebug.whisperTokenTexts.join(' | ') || 'none'}</p>
+        <p><strong>ASR token count:</strong> {scoreDebug.asrTokenCount}</p>
+        <p><strong>ASR token ids:</strong> {scoreDebug.asrTokenIds.join(', ') || 'none'}</p>
+        <p><strong>ASR token texts:</strong> {scoreDebug.asrTokenTexts.join(' | ') || 'none'}</p>
+        <p><strong>LM token count:</strong> {scoreDebug.lmTokenCount}</p>
         <p><strong>LM token ids:</strong> {scoreDebug.lmTokenIds.join(', ') || 'none'}</p>
         <p><strong>LM token texts:</strong> {scoreDebug.lmTokenTexts.join(' | ') || 'none'}</p>
-        <p><strong>Aligned token count:</strong> {scoreDebug.alignedTokenCount}</p>
-        <p><strong>Alignment mode:</strong> {scoreDebug.alignmentMode}</p>
+        <p><strong>Tokenizer difference example:</strong> {scoreDebug.tokenizerDifferenceExample}</p>
         <p><strong>Decode steps:</strong> {scoreDebug.totalDecodeSteps}</p>
-        <p><strong>ASR log probs:</strong> {scoreDebug.asrLogProbabilities.join(', ') || 'none'}</p>
-        <p><strong>ASR probs:</strong> {scoreDebug.asrProbabilities.join(', ') || 'none'}</p>
-        <p><strong>LM log probs:</strong> {scoreDebug.lmLogProbabilities.join(', ') || 'none'}</p>
-        <p><strong>LM probs:</strong> {scoreDebug.lmProbabilities.join(', ') || 'none'}</p>
-        <p><strong>Per-token combined ratio:</strong> {scoreDebug.perTokenCombinedLogLikelihoodRatio.join(', ') || 'none'}</p>
+        <p><strong>ASR token log probs:</strong> {scoreDebug.asrTokenLogProbs.join(', ') || 'none'}</p>
+        <p><strong>LM token log probs:</strong> {scoreDebug.lmTokenLogProbs.join(', ') || 'none'}</p>
         <p><strong>Raw combined log-likelihood:</strong> {scoreDebug.rawCombinedLogLikelihood}</p>
         <p><strong>Raw Whisper log-likelihood:</strong> {scoreDebug.rawWhisperLogLikelihood}</p>
         <p><strong>Normalized campaign score:</strong> {scoreDebug.normalizedCampaignScore}</p>
-        <p><strong>Final score:</strong> {scoreDebug.finalScore}</p>
+        <p><strong>Whole-string score:</strong> {scoreDebug.finalScore}</p>
         <p><strong>LM weight:</strong> {scoreDebug.lmWeight}</p>
-        <p><strong>First token add amount:</strong> {scoreDebug.firstTokenAddAmount}</p>
         <p><strong>LM priors used:</strong> {scoreDebug.usedLmPriors ? 'yes' : 'no'}</p>
         <p><strong>Warnings:</strong> {scoreDebug.warnings.join(' | ') || 'none'}</p>
         <p><strong>Stars:</strong> {scoreDebug.stars}</p>

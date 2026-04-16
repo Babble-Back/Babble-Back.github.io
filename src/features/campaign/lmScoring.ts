@@ -1,7 +1,4 @@
-import type {
-  WhisperPhraseScoreDetails,
-  WhisperStepScore,
-} from '../../lib/asr/whisperScoring';
+import type { WhisperPhraseScoreDetails } from '../../lib/asr/whisperScoring';
 import {
   type CampaignPhraseLmPrior,
   type CampaignScoringConfig,
@@ -10,39 +7,28 @@ import {
   normalizeCampaignPhraseLmPrior,
 } from './lmPrior';
 
-export interface CampaignAlignedTokenScore {
-  asrLogProbability: number;
-  asrProbability: number;
-  combinedLogLikelihoodRatio: number;
-  index: number;
-  lmIndex: number | null;
-  lmLogProbability: number;
-  lmMatched: boolean;
-  lmProbability: number;
-  lmTokenId: number | null;
-  lmTokenText: string;
-  whisperIndex: number;
-  whisperTokenId: number;
-  whisperTokenText: string;
-}
+const NEGATIVE_INFINITY = Number.NEGATIVE_INFINITY;
 
 export interface CampaignCombinedScoreDebug {
-  alignedTokenCount: number;
-  alignmentMode: 'exact' | 'offset_trim' | 'min_length_fallback' | 'whisper_only';
-  alignedTokens: CampaignAlignedTokenScore[];
-  asrProbabilities: number[];
-  combinedRawScore: number;
-  firstTokenAddAmount: number;
+  asrTokenCount: number;
+  asrTokenIds: number[];
+  asrTokenLogProbs: number[];
+  asrTokenTexts: string[];
+  combinedNumerator: number;
+  finalScore: number;
   lmModelName: string | null;
-  lmProbabilities: number[];
+  lmTokenCount: number;
   lmTokenIds: number[];
+  lmTokenLogProbs: number[];
   lmTokenTexts: string[];
   lmWeight: number;
-  perTokenCombinedLogLikelihoodRatio: number[];
+  logPAsr: number;
+  logPLm: number;
+  scoredText: string;
+  textLen: number;
+  tokenizerDifferenceExample: string;
   usedLmPriors: boolean;
   warnings: string[];
-  whisperTokenIds: number[];
-  whisperTokenTexts: string[];
 }
 
 export interface CampaignCombinedScoreResult {
@@ -51,164 +37,65 @@ export interface CampaignCombinedScoreResult {
   rawLogLikelihood: number;
 }
 
-interface AlignmentSpan {
-  lmStart: number;
-  matchedCount: number;
-  mode: 'exact' | 'offset_trim';
-  whisperStart: number;
-}
-
-function clampProbability(value: number, epsilon: number) {
-  if (!Number.isFinite(value)) {
-    return epsilon;
-  }
-
-  return Math.max(epsilon, Math.min(1, value));
-}
-
 function sum(values: number[]) {
   return values.reduce((total, value) => total + value, 0);
 }
 
-function stepTokenText(step: WhisperStepScore) {
-  return step.tokenText ?? '';
+function getStringLengthLikePython(text: string) {
+  return Array.from(text).length;
 }
 
-function buildWhisperTokenTexts(whisperScore: WhisperPhraseScoreDetails) {
-  return whisperScore.targetTokenIds.map((tokenId, index) => {
-    const step = whisperScore.targetStepScores[index];
-    return step ? stepTokenText(step) : '';
-  });
+function buildAsrTokenTexts(whisperScore: WhisperPhraseScoreDetails) {
+  return whisperScore.targetStepScores.map((step) => step.tokenText ?? '');
 }
 
-function tokenMatches(
-  whisperScore: WhisperStepScore | undefined,
-  whisperTokenId: number,
-  whisperTokenText: string,
-  lmTokenId: number,
-  lmTokenText: string,
-) {
-  if (whisperScore && whisperScore.tokenId === lmTokenId) {
-    return true;
-  }
-
-  if (whisperTokenId === lmTokenId) {
-    return true;
-  }
-
-  return whisperTokenText === lmTokenText;
+function buildTokenizerDifferenceExample(scoredText: string, asrTokenCount: number, lmTokenCount: number) {
+  return `Whole-string scoring keeps each tokenizer separate for "${scoredText}". Current token counts are informational only: ASR=${asrTokenCount}, LM=${lmTokenCount}. Example: even if ASR emitted 5 tokens and the LM emitted 4, the score still uses total logP_asr(text) and total logP_lm(text), divided once by len(text).`;
 }
 
-function findAlignmentSpan(
+function buildWhisperOnlyResult(
   whisperScore: WhisperPhraseScoreDetails,
-  whisperTokenTexts: string[],
-  lmPrior: CampaignPhraseLmPrior,
-): AlignmentSpan | null {
-  const whisperLength = whisperScore.targetTokenIds.length;
-  const lmLength = lmPrior.tokenIds.length;
-  let bestMatch: AlignmentSpan | null = null;
-
-  for (let whisperStart = 0; whisperStart < whisperLength; whisperStart += 1) {
-    for (let lmStart = 0; lmStart < lmLength; lmStart += 1) {
-      const maxLength = Math.min(whisperLength - whisperStart, lmLength - lmStart);
-      let matchedCount = 0;
-
-      for (let offset = 0; offset < maxLength; offset += 1) {
-        const whisperIndex = whisperStart + offset;
-        const lmIndex = lmStart + offset;
-        const whisperStep = whisperScore.targetStepScores[whisperIndex];
-
-        if (
-          !tokenMatches(
-            whisperStep,
-            whisperScore.targetTokenIds[whisperIndex] ?? -1,
-            whisperTokenTexts[whisperIndex] ?? '',
-            lmPrior.tokenIds[lmIndex] ?? -1,
-            lmPrior.tokenTexts[lmIndex] ?? '',
-          )
-        ) {
-          break;
-        }
-
-        matchedCount += 1;
-      }
-
-      if (matchedCount <= 0) {
-        continue;
-      }
-
-      const mode =
-        whisperStart === 0 && lmStart === 0 && matchedCount === Math.min(whisperLength, lmLength)
-          ? 'exact'
-          : 'offset_trim';
-      const nextMatch: AlignmentSpan = {
-        whisperStart,
-        lmStart,
-        matchedCount,
-        mode,
-      };
-
-      if (
-        !bestMatch ||
-        nextMatch.matchedCount > bestMatch.matchedCount ||
-        (nextMatch.matchedCount === bestMatch.matchedCount &&
-          nextMatch.whisperStart + nextMatch.lmStart < bestMatch.whisperStart + bestMatch.lmStart)
-      ) {
-        bestMatch = nextMatch;
-      }
-    }
-  }
-
-  return bestMatch;
-}
-
-function combineWhisperOnly(
-  whisperScore: WhisperPhraseScoreDetails,
+  scoredText: string,
   config: CampaignScoringConfig,
   warnings: string[],
 ): CampaignCombinedScoreResult {
-  const whisperTokenTexts = buildWhisperTokenTexts(whisperScore);
-  const asrProbabilities = whisperScore.targetStepScores.map((step) => step.probability);
-  const combinedRatios = whisperScore.targetStepScores.map((step, index) => {
-    const baseLogProb = Math.log(clampProbability(step.probability, config.probabilityEpsilon));
-    return index === 0 ? baseLogProb + config.firstTokenAddAmount : baseLogProb;
-  });
+  const textLen = getStringLengthLikePython(scoredText);
+  const logPAsr = whisperScore.rawLogLikelihood;
+  const logPLm = 0;
+  const combinedNumerator = logPAsr;
+  const finalScore =
+    textLen > 0 && Number.isFinite(combinedNumerator)
+      ? combinedNumerator / textLen
+      : NEGATIVE_INFINITY;
+  const asrTokenTexts = buildAsrTokenTexts(whisperScore);
 
   return {
-    averageLogProb: whisperScore.averageLogProb,
-    rawLogLikelihood: whisperScore.rawLogLikelihood,
+    averageLogProb: finalScore,
+    rawLogLikelihood: combinedNumerator,
     debug: {
-      alignedTokenCount: whisperScore.targetStepScores.length,
-      alignmentMode: 'whisper_only',
-      alignedTokens: whisperScore.targetStepScores.map((step, index) => ({
-        asrLogProbability: combinedRatios[index] ?? Math.log(config.probabilityEpsilon),
-        asrProbability: asrProbabilities[index] ?? 0,
-        combinedLogLikelihoodRatio:
-          combinedRatios[index] ?? Math.log(config.probabilityEpsilon),
-        index,
-        lmIndex: null,
-        lmLogProbability: 0,
-        lmMatched: false,
-        lmProbability: 1,
-        lmTokenId: null,
-        lmTokenText: '',
-        whisperIndex: index,
-        whisperTokenId: step.tokenId,
-        whisperTokenText: step.tokenText,
-      })),
-      asrProbabilities,
-      combinedRawScore: whisperScore.averageLogProb,
-      firstTokenAddAmount: config.firstTokenAddAmount,
+      asrTokenCount: whisperScore.targetTokenIds.length,
+      asrTokenIds: whisperScore.targetTokenIds,
+      asrTokenLogProbs: whisperScore.targetStepScores.map((step) => step.logProb),
+      asrTokenTexts,
+      combinedNumerator,
+      finalScore,
       lmModelName: null,
-      lmProbabilities: [],
+      lmTokenCount: 0,
       lmTokenIds: [],
+      lmTokenLogProbs: [],
       lmTokenTexts: [],
       lmWeight: config.lmWeight,
-      perTokenCombinedLogLikelihoodRatio: combinedRatios,
+      logPAsr,
+      logPLm,
+      scoredText,
+      textLen,
+      tokenizerDifferenceExample: buildTokenizerDifferenceExample(
+        scoredText,
+        whisperScore.targetTokenIds.length,
+        0,
+      ),
       usedLmPriors: false,
       warnings,
-      whisperTokenIds: whisperScore.targetTokenIds,
-      whisperTokenTexts,
     },
   };
 }
@@ -216,6 +103,7 @@ function combineWhisperOnly(
 export function combineCampaignLmScore(
   whisperScore: WhisperPhraseScoreDetails,
   lmPriorInput: CampaignPhraseLmPrior | null | undefined,
+  scoredText: string,
   configInput?: Partial<CampaignScoringConfig> | null,
 ): CampaignCombinedScoreResult {
   const config: CampaignScoringConfig = {
@@ -223,156 +111,66 @@ export function combineCampaignLmScore(
     ...configInput,
   };
   const warnings: string[] = [];
-  const whisperTokenTexts = buildWhisperTokenTexts(whisperScore);
+  const textLen = getStringLengthLikePython(scoredText);
 
-  if (
-    !whisperScore.targetStepScores.length ||
-    whisperScore.targetStepScores.length !== whisperScore.targetTokenIds.length
-  ) {
-    warnings.push(
-      'Whisper token probabilities are incomplete for this phrase. Falling back to Whisper-only scoring.',
-    );
-    return combineWhisperOnly(whisperScore, config, warnings);
+  if (textLen <= 0) {
+    warnings.push('The scored text is empty, so the campaign score is undefined.');
+    return buildWhisperOnlyResult(whisperScore, scoredText, config, warnings);
   }
 
+  const asrTokenLogProbs = whisperScore.targetStepScores.map((step) => step.logProb);
+  const asrTokenTexts = buildAsrTokenTexts(whisperScore);
+  const logPAsr = whisperScore.rawLogLikelihood;
   const lmPrior = normalizeCampaignPhraseLmPrior(lmPriorInput);
+
+  if (!Number.isFinite(logPAsr)) {
+    warnings.push(
+      'ASR did not produce a finite whole-string log probability for this text. Falling back to Whisper-only result handling.',
+    );
+    return buildWhisperOnlyResult(whisperScore, scoredText, config, warnings);
+  }
 
   if (!isCampaignPhraseLmPriorUsable(lmPrior)) {
     warnings.push(
-      'LM priors are missing, malformed, or not ready for this phrase. Falling back to Whisper-only scoring.',
+      'LM priors are missing, malformed, or not ready for this phrase. Using ASR-only whole-string scoring.',
     );
-    return combineWhisperOnly(whisperScore, config, warnings);
+    return buildWhisperOnlyResult(whisperScore, scoredText, config, warnings);
   }
 
-  const alignmentSpan = findAlignmentSpan(whisperScore, whisperTokenTexts, lmPrior);
-  const whisperLength = whisperScore.targetStepScores.length;
-  const defaultWhisperStart = 0;
-  const defaultLmStart = 0;
-  const whisperStart = alignmentSpan?.whisperStart ?? defaultWhisperStart;
-  const lmStart = alignmentSpan?.lmStart ?? defaultLmStart;
-  const matchedCount = alignmentSpan?.matchedCount ?? 0;
-  const alignedWhisperLength = whisperLength - whisperStart;
-  const availableLmLength = Math.max(0, lmPrior.tokenIds.length - lmStart);
-  const fallbackLength = Math.min(alignedWhisperLength, availableLmLength);
-  const alignedLength = matchedCount > 0 ? matchedCount : fallbackLength;
-  const alignmentMode = alignmentSpan?.mode ?? 'min_length_fallback';
-  const shouldNeutralPadLm =
-    alignedWhisperLength > alignedLength && alignedLength >= availableLmLength;
-  const scoredLength = shouldNeutralPadLm ? alignedWhisperLength : alignedLength;
-
-  if (!alignmentSpan) {
-    warnings.push(
-      'Unable to find an exact Whisper/GPT-2 token alignment. Falling back to positional min-length alignment.',
-    );
-  }
-
-  if (scoredLength <= 0) {
-    warnings.push('Aligned token count is zero. Falling back to Whisper-only scoring.');
-    return combineWhisperOnly(whisperScore, config, warnings);
-  }
-
-  if (whisperStart > 0 || lmStart > 0) {
-    warnings.push(
-      `Trimmed alignment to Whisper offset ${whisperStart} and LM offset ${lmStart} to skip non-matching prefix tokens.`,
-    );
-  }
-
-  const alignedTokenScores: CampaignAlignedTokenScore[] = [];
-  const asrProbabilities: number[] = [];
-  const lmProbabilities: number[] = [];
-  const combinedRatios: number[] = [];
-
-  for (let index = 0; index < scoredLength; index += 1) {
-    const whisperIndex = whisperStart + index;
-    const lmIndex = lmStart + index;
-    const whisperStep = whisperScore.targetStepScores[whisperIndex];
-    const hasLmToken = index < alignedLength;
-    const whisperProbability = clampProbability(
-      whisperStep?.probability ?? 0,
-      config.probabilityEpsilon,
-    );
-    const lmProbability = clampProbability(
-      hasLmToken ? (lmPrior.tokenProbs[lmIndex] ?? 1) : 1,
-      config.probabilityEpsilon,
-    );
-    const whisperLogProbability = Math.log(whisperProbability);
-    const adjustedWhisperLogProbability =
-      index === 0
-        ? whisperLogProbability + config.firstTokenAddAmount
-        : whisperLogProbability;
-    const lmLogProbability = hasLmToken
-      ? Number.isFinite(lmPrior.tokenLogProbs[lmIndex] ?? NaN)
-        ? (lmPrior.tokenLogProbs[lmIndex] as number)
-        : Math.log(lmProbability)
-      : 0;
-    const combinedLogLikelihoodRatio =
-      adjustedWhisperLogProbability - config.lmWeight * lmLogProbability;
-
-    asrProbabilities.push(whisperProbability);
-    lmProbabilities.push(lmProbability);
-    combinedRatios.push(combinedLogLikelihoodRatio);
-    alignedTokenScores.push({
-      asrLogProbability: adjustedWhisperLogProbability,
-      asrProbability: whisperProbability,
-      combinedLogLikelihoodRatio,
-      index,
-      lmIndex: hasLmToken ? lmIndex : null,
-      lmLogProbability,
-      lmMatched: tokenMatches(
-        whisperStep,
-        whisperScore.targetTokenIds[whisperIndex] ?? -1,
-        whisperTokenTexts[whisperIndex] ?? '',
-        hasLmToken ? (lmPrior.tokenIds[lmIndex] ?? -1) : -1,
-        hasLmToken ? (lmPrior.tokenTexts[lmIndex] ?? '') : '',
-      ),
-      lmProbability,
-      lmTokenId: hasLmToken ? (lmPrior.tokenIds[lmIndex] ?? null) : null,
-      lmTokenText: hasLmToken ? (lmPrior.tokenTexts[lmIndex] ?? '') : '',
-      whisperIndex,
-      whisperTokenId: whisperScore.targetTokenIds[whisperIndex] ?? -1,
-      whisperTokenText: whisperTokenTexts[whisperIndex] ?? '',
-    });
-  }
-
-  if (shouldNeutralPadLm) {
-    warnings.push(
-      `LM priors ended ${alignedWhisperLength - alignedLength} token(s) early, so the remaining Whisper tokens were padded with neutral LM probability 1.0.`,
-    );
-  } else if (alignedWhisperLength > alignedLength) {
-    warnings.push(
-      `Whisper produced ${alignedWhisperLength - alignedLength} extra text tokens beyond the aligned span.`,
-    );
-  }
-
-  if (availableLmLength > alignedLength) {
-    warnings.push(
-      `LM priors contain ${availableLmLength - alignedLength} extra tokens beyond the aligned span.`,
-    );
-  }
-
-  const rawLogLikelihood = sum(combinedRatios);
-  const averageLogProb = rawLogLikelihood / scoredLength;
+  // Tokenizer lengths are allowed to differ intentionally. We score the same
+  // whole string under each model using each model's own tokenizer, then
+  // combine the total log-probabilities without any token alignment.
+  const logPLm = sum(lmPrior.tokenLogProbs);
+  const combinedNumerator = logPAsr - config.lmWeight * logPLm;
+  const finalScore = combinedNumerator / textLen;
 
   return {
-    averageLogProb,
-    rawLogLikelihood,
+    averageLogProb: finalScore,
+    rawLogLikelihood: combinedNumerator,
     debug: {
-      alignedTokenCount: scoredLength,
-      alignmentMode,
-      alignedTokens: alignedTokenScores,
-      asrProbabilities,
-      combinedRawScore: averageLogProb,
-      firstTokenAddAmount: config.firstTokenAddAmount,
+      asrTokenCount: whisperScore.targetTokenIds.length,
+      asrTokenIds: whisperScore.targetTokenIds,
+      asrTokenLogProbs,
+      asrTokenTexts,
+      combinedNumerator,
+      finalScore,
       lmModelName: lmPrior.modelName,
-      lmProbabilities,
+      lmTokenCount: lmPrior.tokenIds.length,
       lmTokenIds: lmPrior.tokenIds,
+      lmTokenLogProbs: lmPrior.tokenLogProbs,
       lmTokenTexts: lmPrior.tokenTexts,
       lmWeight: config.lmWeight,
-      perTokenCombinedLogLikelihoodRatio: combinedRatios,
+      logPAsr,
+      logPLm,
+      scoredText,
+      textLen,
+      tokenizerDifferenceExample: buildTokenizerDifferenceExample(
+        scoredText,
+        whisperScore.targetTokenIds.length,
+        lmPrior.tokenIds.length,
+      ),
       usedLmPriors: true,
       warnings,
-      whisperTokenIds: whisperScore.targetTokenIds,
-      whisperTokenTexts,
     },
   };
 }

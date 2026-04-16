@@ -179,7 +179,6 @@ export function isCampaignPhraseLmPriorUsable(
   return (
     prior.tokenCount > 0 &&
     prior.tokenIds.length > 0 &&
-    prior.tokenProbs.length > 0 &&
     prior.tokenLogProbs.length > 0
   );
 }
