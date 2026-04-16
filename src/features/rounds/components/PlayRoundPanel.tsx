@@ -190,7 +190,7 @@ export function PlayRoundPanel({
     rewardBaseCoinsRef.current = coins;
     loadedRewardRoundIdRef.current = null;
     setCoinPreview(null);
-  }, [currentUserId, round?.id, recorder.clearRecording, setCoinPreview]);
+  }, [currentUserId, round?.id, round?.status, recorder.clearRecording, setCoinPreview]);
 
   useEffect(() => {
     let cancelled = false;
@@ -538,6 +538,7 @@ export function PlayRoundPanel({
 
     loadedRewardRoundIdRef.current = round.id;
     let cancelled = false;
+    let didFinishLoading = false;
 
     const loadRoundReward = async () => {
       setIsLoadingReward(true);
@@ -592,6 +593,7 @@ export function PlayRoundPanel({
         }
       } finally {
         if (!cancelled) {
+          didFinishLoading = true;
           setIsLoadingReward(false);
         }
       }
@@ -601,16 +603,20 @@ export function PlayRoundPanel({
 
     return () => {
       cancelled = true;
+
+      if (!didFinishLoading && loadedRewardRoundIdRef.current === round.id) {
+        loadedRewardRoundIdRef.current = null;
+      }
     };
   }, [
     coins,
     currentUserId,
-    finalizePendingRewardClaim,
     isRewardStepOpen,
     isLoadingCoins,
-    round,
-    updateRewardPreview,
+    round?.id,
+    round?.status,
     setCoinPreview,
+    updateRewardPreview,
   ]);
 
   if (!round) {

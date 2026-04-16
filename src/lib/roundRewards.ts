@@ -10,15 +10,15 @@ interface RoundRewardRow {
   reward_amount: number;
   claimed: boolean;
   created_at: string;
-  campaign_id: string | null;
-  campaign_resource_type: string | null;
-  campaign_reward_amount: number;
+  campaign_id?: string | null;
+  campaign_resource_type?: string | null;
+  campaign_reward_amount?: number | null;
 }
 
 interface ClaimRoundRewardRow extends RoundRewardRow {
-  claimed_now: boolean;
-  current_balance: number;
-  campaign_current_balance: number | null;
+  claimed_now?: boolean;
+  current_balance?: number | null;
+  campaign_current_balance?: number | null;
 }
 
 export interface ClaimRewardResult {
@@ -44,11 +44,11 @@ function mapRoundRewardRow(row: RoundRewardRow): RoundReward {
     stars: row.stars as RoundReward['stars'],
     difficulty: row.difficulty,
     rewardAmount: row.reward_amount,
-    bonusResourceType: row.campaign_resource_type,
-    bonusRewardAmount: row.campaign_reward_amount,
+    bonusResourceType: row.campaign_resource_type ?? null,
+    bonusRewardAmount: row.campaign_reward_amount ?? 0,
     claimed: row.claimed,
     createdAt: row.created_at,
-    campaignId: row.campaign_id,
+    campaignId: row.campaign_id ?? null,
   };
 }
 
@@ -56,9 +56,7 @@ export async function getRoundReward(userId: string, roundId: string) {
   const client = requireSupabase();
   const { data, error } = await client
     .from('round_rewards')
-    .select(
-      'id, round_id, user_id, stars, difficulty, reward_amount, claimed, created_at, campaign_id, campaign_resource_type, campaign_reward_amount',
-    )
+    .select('*')
     .eq('user_id', userId)
     .eq('round_id', roundId)
     .maybeSingle<RoundRewardRow>();
