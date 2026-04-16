@@ -163,7 +163,7 @@ export async function scoreCampaignAttempt({
     const whisperScore = await scoreWhisperPhraseAudio(processedAttemptAudio, targetPhrase);
     const combinedScore = combineCampaignLmScore(whisperScore, lmPrior, scoredText, scoringConfig);
     const normalizedCampaignScore = normalizeCampaignLogScore(combinedScore.averageLogProb);
-    const stars = getCampaignStars(normalizedCampaignScore);
+    const stars = getCampaignStars(combinedScore.debug.finalScore);
     const shouldLogDebug = shouldLogCampaignWhisperScores();
     const debug = shouldLogDebug
       ? {

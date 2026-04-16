@@ -1,4 +1,4 @@
-const BUILD_VERSION = 'git-c4da6b80af7f';
+const BUILD_VERSION = 'git-9b521e108793';
 const PRECACHE_CORE = `precache-core-${BUILD_VERSION}`;
 const PRECACHE_CARD = `precache-card-${BUILD_VERSION}`;
 const RUNTIME_CACHE = `runtime-${BUILD_VERSION}`;

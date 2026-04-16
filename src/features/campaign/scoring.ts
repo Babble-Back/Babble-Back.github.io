@@ -1,20 +1,20 @@
 import type { WordDifficulty } from '../../utils/difficulty';
 
-const ONE_STAR_THRESHOLD = 0.24;
-const TWO_STAR_THRESHOLD = 0.48;
-const THREE_STAR_THRESHOLD = 0.72;
+const ONE_STAR_MIN_SCORE = -2;
+const TWO_STAR_MIN_SCORE = -1.66;
+const THREE_STAR_MIN_SCORE = -1.3;
 const MIN_LOG_PROBABILITY = -12;
 
 export function getCampaignStars(score: number) {
-  if (score >= THREE_STAR_THRESHOLD) {
+  if (score >= THREE_STAR_MIN_SCORE) {
     return 3;
   }
 
-  if (score >= TWO_STAR_THRESHOLD) {
+  if (score >= TWO_STAR_MIN_SCORE) {
     return 2;
   }
 
-  if (score >= ONE_STAR_THRESHOLD) {
+  if (score >= ONE_STAR_MIN_SCORE) {
     return 1;
   }
 
