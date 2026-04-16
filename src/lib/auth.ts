@@ -32,6 +32,25 @@ function requireSupabase() {
   return supabase;
 }
 
+function isInvalidRefreshTokenError(message: string) {
+  const normalizedMessage = message.trim().toLowerCase();
+
+  return (
+    normalizedMessage.includes('invalid refresh token') ||
+    normalizedMessage.includes('refresh token not found')
+  );
+}
+
+async function clearLocalSession() {
+  const client = requireSupabase();
+
+  try {
+    await client.auth.signOut({ scope: 'local' });
+  } catch {
+    // Best-effort cleanup. If this fails, the caller will still handle the original auth error.
+  }
+}
+
 function normalizeEmail(email: string) {
   return email.trim().toLowerCase();
 }
@@ -57,6 +76,11 @@ export async function getSession() {
   const { data, error } = await client.auth.getSession();
 
   if (error) {
+    if (isInvalidRefreshTokenError(error.message)) {
+      await clearLocalSession();
+      return null;
+    }
+
     throw new Error(`Unable to read the current session: ${error.message}`);
   }
 
@@ -145,6 +169,11 @@ export async function signOut() {
   const { error } = await client.auth.signOut();
 
   if (error) {
+    if (isInvalidRefreshTokenError(error.message)) {
+      await clearLocalSession();
+      return;
+    }
+
     throw new Error(`Unable to sign out: ${error.message}`);
   }
 }
