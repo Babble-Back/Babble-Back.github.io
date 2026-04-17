@@ -1,3 +1,4 @@
+import { getSession } from './auth';
 import { supabase, supabaseConfigError } from './supabase';
 import { clearWordPackUnlockCache } from './wordPacks';
 import type { CampaignPhraseLmPrior } from '../features/campaign/lmPrior';
@@ -160,6 +161,9 @@ interface CampaignChallengeRow {
 interface ActiveCampaignHomeRow {
   campaign_id: string | null;
   banner_image: string | null;
+  challenge_icon?: string | null;
+  subtitle?: string | null;
+  title?: string | null;
 }
 
 interface CampaignHomeAssetValueMap {
@@ -641,14 +645,8 @@ function mapAttemptRewardRow(row: CampaignAttemptRewardRow): CampaignAttemptRewa
 }
 
 async function getCurrentUserId() {
-  const client = requireSupabase();
-  const { data, error } = await client.auth.getUser();
-
-  if (error) {
-    throw new Error(`Unable to read the current user: ${error.message}`);
-  }
-
-  return data.user?.id ?? null;
+  const session = await getSession();
+  return session?.user.id ?? null;
 }
 
 async function resolveCampaignUserId(currentUserId?: string | null) {
@@ -823,21 +821,13 @@ export async function getActiveCampaignHome(): Promise<ActiveCampaignHome> {
 
   const row = (Array.isArray(data) ? data[0] : data) as ActiveCampaignHomeRow | null;
   const campaignId = readString(row?.campaign_id);
-  const assets = campaignId
-    ? await loadCampaignHomeAssets(campaignId)
-    : {
-        bannerImage: null,
-        challengeIcon: null,
-        subtitle: null,
-        title: null,
-      };
 
   return {
-    bannerImage: assets.bannerImage ?? readString(row?.banner_image),
+    bannerImage: readString(row?.banner_image),
     campaignId,
-    challengeIcon: assets.challengeIcon,
-    subtitle: assets.subtitle,
-    title: assets.title,
+    challengeIcon: readString(row?.challenge_icon),
+    subtitle: readString(row?.subtitle),
+    title: readString(row?.title),
   };
 }
 

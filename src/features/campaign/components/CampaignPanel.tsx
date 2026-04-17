@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAudioRecorder } from '../../../audio/hooks/useAudioRecorder';
 import { reverseAudioBlob } from '../../../audio/utils/reverseAudioBlob';
 import { AudioPlayerCard } from '../../../components/AudioPlayerCard';
-import { StarRating } from '../../../components/StarRating';
 import { ToggleRecordButton } from '../../../components/ToggleRecordButton';
 import { WaveformLoader } from '../../../components/WaveformLoader';
 import { RoundRewardSequence } from '../../rounds/components/RoundRewardSequence';
@@ -16,6 +15,9 @@ import {
   getCampaignCurrencyDefinition,
   listCampaignLeaderboard,
   loadActiveCampaignState,
+  type CampaignAttemptState as CampaignAttemptStateData,
+  type CampaignChallenge as CampaignChallengeData,
+  type CampaignState as CampaignStateData,
 } from '../../../lib/campaigns';
 import { useCoins } from '../../resources/ResourceProvider';
 import {
@@ -27,23 +29,29 @@ import { readCampaignScoringConfig } from '../lmPrior';
 import { buildBackwardPhraseExample, formatDifficultyLabel } from '../scoring';
 
 interface CampaignPanelProps {
-  currentUserId: string;
+  currentUserId?: string | null;
+  demoState?: CampaignStateData | null;
+  hideLeaderboard?: boolean;
+  mode?: 'live' | 'demo';
+  onDemoStateChange?: (state: CampaignStateData) => void;
 }
 
 type CampaignStage =
   | 'overview'
-  | 'briefing'
   | 'recording-original'
   | 'guide'
   | 'recording-attempt'
   | 'attempt-ready'
   | 'processing'
-  | 'result'
   | 'reward';
 
-type CampaignState = NonNullable<Awaited<ReturnType<typeof loadActiveCampaignState>>>;
-type CampaignChallenge = CampaignState['challenges'][number];
-type CampaignAttemptState = CampaignState['attempts'][number];
+type CampaignState = CampaignStateData;
+type CampaignChallenge = CampaignChallengeData;
+type CampaignAttemptState = CampaignAttemptStateData;
+type CampaignStateUpdater =
+  | CampaignState
+  | null
+  | ((current: CampaignState | null) => CampaignState | null);
 
 interface CampaignRewardReveal extends RewardSequenceReward {
   currentBalance: number;
@@ -182,6 +190,37 @@ function formatCampaignTitle(state: CampaignState | null) {
   return campaignMatch?.[1]?.trim() || trimmedTitle || 'Monthly Campaign';
 }
 
+function advanceDemoCampaignState(
+  state: CampaignState,
+  challengeId: string,
+) {
+  const clearedChallenge =
+    state.challenges.find((challenge) => challenge.id === challengeId) ?? null;
+
+  if (!clearedChallenge) {
+    return state;
+  }
+
+  const nextCompletedCount = Math.max(
+    state.progress.completedCount,
+    clearedChallenge.challengeIndex,
+  );
+  const nextCurrentIndex = Math.min(
+    state.challenges.length + 1,
+    clearedChallenge.challengeIndex + 1,
+  );
+
+  return {
+    ...state,
+    progress: {
+      ...state.progress,
+      currentIndex: nextCurrentIndex,
+      completedCount: nextCompletedCount,
+    },
+    attemptState: null,
+  };
+}
+
 function buildRoadWindow(challenges: CampaignChallenge[], currentIndex: number) {
   const currentChallenge =
     challenges.find((challenge) => challenge.challengeIndex === currentIndex) ?? null;
@@ -233,7 +272,14 @@ function CampaignActionLabel({
   );
 }
 
-export function CampaignPanel({ currentUserId }: CampaignPanelProps) {
+export function CampaignPanel({
+  currentUserId = null,
+  demoState = null,
+  hideLeaderboard = false,
+  mode = 'live',
+  onDemoStateChange,
+}: CampaignPanelProps) {
+  const isDemoMode = mode === 'demo';
   const originalRecorder = useAudioRecorder({
     audioConstraints: CAMPAIGN_AUDIO_CONSTRAINTS,
     preparedStreamIdleMs: 0,
@@ -243,10 +289,12 @@ export function CampaignPanel({ currentUserId }: CampaignPanelProps) {
     preparedStreamIdleMs: 0,
   });
   const { coins, refreshCoins, setCoinBalance, setCoinPreview, setResourceBalance } = useCoins();
-  const [campaignState, setCampaignState] = useState<CampaignState | null>(null);
+  const [campaignState, setCampaignState] = useState<CampaignState | null>(
+    isDemoMode ? demoState : null,
+  );
   const [stage, setStage] = useState<CampaignStage>('overview');
   const [stageChallengeId, setStageChallengeId] = useState<string | null>(null);
-  const [isLoadingCampaign, setIsLoadingCampaign] = useState(true);
+  const [isLoadingCampaign, setIsLoadingCampaign] = useState(!isDemoMode);
   const [error, setError] = useState<string | null>(null);
   const [originalRecording, setOriginalRecording] = useState<Blob | null>(null);
   const [guideRecording, setGuideRecording] = useState<Blob | null>(null);
@@ -264,11 +312,24 @@ export function CampaignPanel({ currentUserId }: CampaignPanelProps) {
   const [isScorerWarming, setIsScorerWarming] = useState(true);
   const [isStartingAttempt, setIsStartingAttempt] = useState(false);
   const [scoreDebug, setScoreDebug] = useState<CampaignAttemptScoreDebug | null>(null);
-  const [activeAttemptCharge, setActiveAttemptCharge] = useState<{
-    charged: boolean;
-    cost: number;
-  } | null>(null);
   const rewardBaseCoinsRef = useRef(0);
+  const updateCampaignState = useCallback(
+    (updater: CampaignStateUpdater) => {
+      setCampaignState((current) => {
+        const nextState =
+          typeof updater === 'function'
+            ? (updater as (current: CampaignState | null) => CampaignState | null)(current)
+            : updater;
+
+        if (nextState && isDemoMode) {
+          onDemoStateChange?.(nextState);
+        }
+
+        return nextState;
+      });
+    },
+    [isDemoMode, onDemoStateChange],
+  );
 
   const resetFlow = useCallback(() => {
     setStage('overview');
@@ -280,7 +341,6 @@ export function CampaignPanel({ currentUserId }: CampaignPanelProps) {
     setStars(0);
     setCampaignReward(null);
     setIsAnimatingReward(false);
-    setActiveAttemptCharge(null);
     setIsStartingAttempt(false);
     setScoreDebug(null);
     setError(null);
@@ -291,6 +351,17 @@ export function CampaignPanel({ currentUserId }: CampaignPanelProps) {
 
   const refreshCampaign = useCallback(async (options?: { clearError?: boolean }) => {
     const shouldClearError = options?.clearError ?? true;
+
+    if (isDemoMode) {
+      if (shouldClearError) {
+        setError(null);
+      }
+
+      setCampaignState(demoState);
+      setIsLoadingCampaign(false);
+      return demoState;
+    }
+
     setIsLoadingCampaign(true);
 
     if (shouldClearError) {
@@ -298,8 +369,8 @@ export function CampaignPanel({ currentUserId }: CampaignPanelProps) {
     }
 
     try {
-      const nextState = (await loadActiveCampaignState(currentUserId)) as CampaignState | null;
-      setCampaignState(nextState);
+      const nextState = await loadActiveCampaignState(currentUserId);
+      updateCampaignState(nextState);
       return nextState;
     } catch (caughtError) {
       setError(
@@ -309,11 +380,20 @@ export function CampaignPanel({ currentUserId }: CampaignPanelProps) {
     } finally {
       setIsLoadingCampaign(false);
     }
-  }, [currentUserId]);
+  }, [currentUserId, demoState, isDemoMode, updateCampaignState]);
 
   useEffect(() => {
     void refreshCampaign();
   }, [refreshCampaign]);
+
+  useEffect(() => {
+    if (!isDemoMode) {
+      return;
+    }
+
+    setCampaignState(demoState);
+    setIsLoadingCampaign(false);
+  }, [demoState, isDemoMode]);
 
   useEffect(() => () => {
     setCoinPreview(null);
@@ -454,13 +534,15 @@ export function CampaignPanel({ currentUserId }: CampaignPanelProps) {
     [challenges, currentIndex],
   );
   const roadRetryCost =
-    currentChallenge && requiresRetryCharge(campaignState?.attemptState)
+    !isDemoMode &&
+    currentChallenge &&
+    requiresRetryCharge(campaignState?.attemptState)
       ? getRetryCost(campaignState?.attemptState)
       : null;
-  const currentRetryCost = requiresRetryCharge(currentAttemptState)
+  const currentRetryCost = !isDemoMode && requiresRetryCharge(currentAttemptState)
     ? getRetryCost(currentAttemptState)
     : null;
-  const canStartRetry = hasEnoughCoinsForRetry(currentAttemptState, coins);
+  const canStartRetry = isDemoMode || hasEnoughCoinsForRetry(currentAttemptState, coins);
   const updateRewardPreview = useCallback(
     (nextDisplayedCoins: number) => {
       setCoinPreview(nextDisplayedCoins);
@@ -513,9 +595,27 @@ export function CampaignPanel({ currentUserId }: CampaignPanelProps) {
       setError(null);
 
       try {
+        if (isDemoMode) {
+          setStageChallengeId(challenge.id);
+          setAttemptRecording(null);
+          setReversedAttemptRecording(null);
+          setStars(0);
+          setCampaignReward(null);
+          setIsAnimatingReward(false);
+          setScoreDebug(null);
+          setCoinPreview(null);
+          attemptRecorder.clearRecording();
+
+          if (nextStage === 'recording-original') {
+            setOriginalRecording(null);
+            setGuideRecording(null);
+            originalRecorder.clearRecording();
+          }
+          setStage(nextStage);
+          return;
+        }
+
         const attemptResult = await consumeCampaignAttempt(challenge.id);
-        const attemptWasCharged = Boolean(attemptResult.charged);
-        const retryCost = getRetryCost(attemptResult);
 
         if (typeof attemptResult.currentBalance === 'number') {
           setCoinBalance(attemptResult.currentBalance);
@@ -523,7 +623,7 @@ export function CampaignPanel({ currentUserId }: CampaignPanelProps) {
           await refreshCoins();
         }
 
-        setCampaignState((current) => {
+        updateCampaignState((current) => {
           if (!current) {
             return current;
           }
@@ -561,11 +661,6 @@ export function CampaignPanel({ currentUserId }: CampaignPanelProps) {
           setGuideRecording(null);
           originalRecorder.clearRecording();
         }
-
-        setActiveAttemptCharge({
-          charged: attemptWasCharged,
-          cost: retryCost,
-        });
         setStage(nextStage);
       } catch (caughtError) {
         const nextError =
@@ -590,11 +685,13 @@ export function CampaignPanel({ currentUserId }: CampaignPanelProps) {
     },
     [
       attemptRecorder,
+      isDemoMode,
       originalRecorder,
       refreshCampaign,
       refreshCoins,
       setCoinBalance,
       setCoinPreview,
+      updateCampaignState,
     ],
   );
 
@@ -603,7 +700,7 @@ export function CampaignPanel({ currentUserId }: CampaignPanelProps) {
       return;
     }
 
-    if (!hasEnoughCoinsForRetry(currentAttemptState, coins)) {
+    if (!isDemoMode && !hasEnoughCoinsForRetry(currentAttemptState, coins)) {
       setError(`You need ${getRetryCost(currentAttemptState)} BB Coins for another campaign retry.`);
       return;
     }
@@ -612,14 +709,14 @@ export function CampaignPanel({ currentUserId }: CampaignPanelProps) {
       currentChallenge,
       currentChallenge.mode === 'reverse_only' ? 'recording-attempt' : 'recording-original',
     );
-  }, [coins, currentAttemptState, currentChallenge, isStartingAttempt, startCampaignAttempt]);
+  }, [coins, currentAttemptState, currentChallenge, isDemoMode, isStartingAttempt, startCampaignAttempt]);
 
   const startRetryAttempt = useCallback(() => {
     if (!activeChallenge || isStartingAttempt) {
       return;
     }
 
-    if (!hasEnoughCoinsForRetry(currentAttemptState, coins)) {
+    if (!isDemoMode && !hasEnoughCoinsForRetry(currentAttemptState, coins)) {
       setError(`You need ${getRetryCost(currentAttemptState)} BB Coins for another campaign retry.`);
       return;
     }
@@ -628,14 +725,14 @@ export function CampaignPanel({ currentUserId }: CampaignPanelProps) {
       activeChallenge,
       activeChallenge.mode === 'reverse_only' ? 'recording-attempt' : 'recording-original',
     );
-  }, [activeChallenge, coins, currentAttemptState, isStartingAttempt, startCampaignAttempt]);
+  }, [activeChallenge, coins, currentAttemptState, isDemoMode, isStartingAttempt, startCampaignAttempt]);
 
   const startNextChallenge = useCallback(() => {
     if (!currentChallenge || isStartingAttempt) {
       return;
     }
 
-    if (!hasEnoughCoinsForRetry(campaignState?.attemptState ?? null, coins)) {
+    if (!isDemoMode && !hasEnoughCoinsForRetry(campaignState?.attemptState ?? null, coins)) {
       setError(`You need ${getRetryCost(campaignState?.attemptState)} BB Coins for another campaign retry.`);
       return;
     }
@@ -644,7 +741,7 @@ export function CampaignPanel({ currentUserId }: CampaignPanelProps) {
       currentChallenge,
       currentChallenge.mode === 'reverse_only' ? 'recording-attempt' : 'recording-original',
     );
-  }, [campaignState?.attemptState, coins, currentChallenge, isStartingAttempt, startCampaignAttempt]);
+  }, [campaignState?.attemptState, coins, currentChallenge, isDemoMode, isStartingAttempt, startCampaignAttempt]);
 
   const handleProcessAttempt = useCallback(async () => {
     if (!activeChallenge || !attemptRecording) {
@@ -681,7 +778,26 @@ export function CampaignPanel({ currentUserId }: CampaignPanelProps) {
 
       rewardBaseCoinsRef.current = coins;
 
-      if (nextStars === 3) {
+      if (isDemoMode) {
+        let nextDemoState = campaignState;
+        let advanced = false;
+
+        if (nextStars === 3 && campaignState) {
+          nextDemoState = advanceDemoCampaignState(campaignState, activeChallenge.id);
+          advanced = nextDemoState.progress.currentIndex <= nextDemoState.challenges.length;
+          updateCampaignState(nextDemoState);
+        }
+
+        rewardResult = {
+          challengeId: activeChallenge.id,
+          rewardAmount: nextStars,
+          currentBalance: rewardBaseCoinsRef.current + nextStars,
+          advanced,
+          currencyResourceType: null,
+          currencyRewardAmount: 0,
+          currencyCurrentBalance: null,
+        };
+      } else if (nextStars === 3) {
         const completionResult = await completeCampaignChallenge({
           challengeId: activeChallenge.id,
           stars: nextStars,
@@ -727,7 +843,7 @@ export function CampaignPanel({ currentUserId }: CampaignPanelProps) {
 
       let nextBalance = rewardResult.currentBalance;
 
-      if (nextBalance === null) {
+      if (nextBalance === null && !isDemoMode) {
         try {
           nextBalance = await refreshCoins();
         } catch (refreshError) {
@@ -804,8 +920,9 @@ export function CampaignPanel({ currentUserId }: CampaignPanelProps) {
   }, [
     attemptRecording,
     activeChallenge,
-    activeAttemptCharge,
     coins,
+    campaignState,
+    isDemoMode,
     refreshCampaign,
     refreshCoins,
     guideRecording,
@@ -813,6 +930,7 @@ export function CampaignPanel({ currentUserId }: CampaignPanelProps) {
     setCoinBalance,
     setCoinPreview,
     setResourceBalance,
+    updateCampaignState,
     updateRewardPreview,
     campaignState?.campaign.config,
     campaignCurrency,
@@ -864,7 +982,7 @@ export function CampaignPanel({ currentUserId }: CampaignPanelProps) {
   };
 
   useEffect(() => {
-    if (!leaderboardOpen || !campaignState) {
+    if (hideLeaderboard || isDemoMode || !leaderboardOpen || !campaignState) {
       return;
     }
 
@@ -902,7 +1020,7 @@ export function CampaignPanel({ currentUserId }: CampaignPanelProps) {
     return () => {
       cancelled = true;
     };
-  }, [campaignState, leaderboardFriendsOnly, leaderboardOpen]);
+  }, [campaignState, hideLeaderboard, isDemoMode, leaderboardFriendsOnly, leaderboardOpen]);
 
   const renderChallengeBody = () => {
     if (!activeChallenge) {
@@ -1059,7 +1177,6 @@ export function CampaignPanel({ currentUserId }: CampaignPanelProps) {
     }
 
     if (stage === 'reward' && campaignReward) {
-
       return (
         <div className="campaign-step-stack reward-stage-step">
           <RoundRewardSequence
@@ -1080,92 +1197,39 @@ export function CampaignPanel({ currentUserId }: CampaignPanelProps) {
             onDisplayedCoinsChange={updateRewardPreview}
             reward={campaignReward}
             startCompleted={!isAnimatingReward}
-            >
-              {reversedAttemptRecording ? (
-                <AudioPlayerCard
-                  blob={reversedAttemptRecording}
-                  description="This reversed clip was converted back to forward speech and scored in the browser."
-                  title="Scoring Audio"
-                />
-              ) : null}
-              {renderScoringDebug()}
-              <div className="button-row">
-                <button className="button secondary" onClick={resetFlow} type="button">
-                  Done
-                </button>
-              <button
-                className="button primary"
-                disabled={
-                  isAnimatingReward ||
-                  isStartingAttempt ||
-                  (!campaignReward.advanced && !canStartRetry)
-                }
-                onClick={campaignReward.advanced ? startNextChallenge : startRetryAttempt}
-                type="button"
-              >
-                {campaignReward.advanced ? 'Next Challenge' : isStartingAttempt ? (
-                  'Starting...'
-                ) : (
-                  <CampaignActionLabel label="Try Again" retryCost={currentRetryCost} />
-                )}
-              </button>
-            </div>
-          </RoundRewardSequence>
-        </div>
-      );
-    }
-
-    if (stage === 'result') {
-      return (
-        <div className="campaign-step-stack">
-          <div className="campaign-result-card">
-            <div className="campaign-result-hero">
-              <div>
-                <h3>{stars === 3 ? 'Challenge Cleared' : 'Try Again'}</h3>
-                <p>
-                  {stars === 3
-                    ? 'You earned the full 3 stars and unlocked the next egg.'
-                    : 'You need all 3 stars to open the next challenge.'}
-                </p>
-              </div>
-              <div className="campaign-result-stars">
-                <strong>{stars} / 3 stars</strong>
-                <StarRating label={`Campaign result ${stars} out of 3 stars`} value={stars} />
-              </div>
-            </div>
-          </div>
-            <div className="audio-grid">
+          >
+            {reversedAttemptRecording ? (
               <AudioPlayerCard
-                blob={attemptRecording}
-                description="Your recorded attempt."
-                title="Attempt Audio"
-            />
-            <AudioPlayerCard
-              blob={reversedAttemptRecording}
-              description="This reversed clip was converted back to forward speech and scored in the browser."
+                blob={reversedAttemptRecording}
+                description="This reversed clip was converted back to forward speech and scored in the browser."
                 title="Scoring Audio"
               />
-            </div>
+            ) : null}
             {renderScoringDebug()}
             <div className="button-row">
               <button className="button secondary" onClick={resetFlow} type="button">
                 Done
               </button>
-            {stars < 3 ? (
-              <button
-                className="button primary"
-                disabled={isStartingAttempt || !canStartRetry}
-                onClick={startRetryAttempt}
-                type="button"
-              >
-                {isStartingAttempt ? (
-                  'Starting...'
-                ) : (
-                  <CampaignActionLabel label="Try Again" retryCost={currentRetryCost} />
-                )}
-              </button>
-            ) : null}
-          </div>
+              {campaignReward.advanced || currentChallenge ? (
+                <button
+                  className="button primary"
+                  disabled={
+                    isAnimatingReward ||
+                    isStartingAttempt ||
+                    (!campaignReward.advanced && !canStartRetry)
+                  }
+                  onClick={campaignReward.advanced ? startNextChallenge : startRetryAttempt}
+                  type="button"
+                >
+                  {campaignReward.advanced ? 'Next Challenge' : isStartingAttempt ? (
+                    'Starting...'
+                  ) : (
+                    <CampaignActionLabel label="Try Again" retryCost={currentRetryCost} />
+                  )}
+                </button>
+              ) : null}
+            </div>
+          </RoundRewardSequence>
         </div>
       );
     }
@@ -1245,15 +1309,17 @@ export function CampaignPanel({ currentUserId }: CampaignPanelProps) {
                 <div className="campaign-road-stage">
                   <div className="campaign-road-stage-inner">
                     <div className="campaign-road-viewer">
-                      <button
-                        aria-label="Open leaderboard"
-                        className="campaign-side-action"
-                        onClick={() => setLeaderboardOpen(true)}
-                        type="button"
-                      >
-                        <LeaderboardIcon />
-                        <span>Ranks</span>
-                      </button>
+                      {!hideLeaderboard ? (
+                        <button
+                          aria-label="Open leaderboard"
+                          className="campaign-side-action"
+                          onClick={() => setLeaderboardOpen(true)}
+                          type="button"
+                        >
+                          <LeaderboardIcon />
+                          <span>Ranks</span>
+                        </button>
+                      ) : null}
 
                       <div className="campaign-road-line" />
 
@@ -1336,7 +1402,7 @@ export function CampaignPanel({ currentUserId }: CampaignPanelProps) {
         )}
       </section>
 
-      {leaderboardOpen && campaignState ? (
+      {!hideLeaderboard && leaderboardOpen && campaignState ? (
         <div
           className="campaign-leaderboard-backdrop"
           onClick={() => setLeaderboardOpen(false)}

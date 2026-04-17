@@ -667,108 +667,10 @@ export function PlayRoundPanel({
     updateRewardPreview,
   ]);
 
-  if (!round) {
-    return (
-      <section className="surface round-screen">
-        <div className="round-screen-header">
-          <button className="button ghost round-screen-back" onClick={onBack} type="button">
-            Back
-          </button>
-          <div className="round-screen-copy">
-            <div className="eyebrow">Round</div>
-            <h2>{isLoadingRound ? 'Loading thread' : 'No active round'}</h2>
-            <p>
-              {isLoadingRound
-                ? 'Fetching the current round and secure audio links for this thread.'
-                : 'Pick a friend from home to open the current thread.'}
-            </p>
-          </div>
-        </div>
-        {isLoadingRound ? (
-          <div className="round-screen-body">
-            <div className="round-loader-callout" aria-live="polite" role="status">
-              <WaveformLoader className="round-loader-callout-spinner" size={92} strokeWidth={3.6} />
-              <div>
-                <strong>Loading round...</strong>
-                <p>Preparing the latest audio for playback.</p>
-              </div>
-            </div>
-          </div>
-        ) : null}
-      </section>
-    );
-  }
-
-  const showRewardPage = round.status === 'complete';
-  const isSenderRewardPage = showRewardPage && !isRecipient;
-  const rewardResultSummary =
-    isRecipient && round.status === 'complete' && scorePresentation ? (
-      <div className="reward-reveal-details">
-        <p>
-          <strong>You guessed:</strong> {round.guess || 'No guess submitted'}
-        </p>
-        <p>
-          <strong>{round.senderUsername} said:</strong> {round.correctPhrase}
-        </p>
-      </div>
-    ) : null;
-  const senderRewardReview = isSenderRewardPage ? (
-    <div className="reward-review-stack">
-      <div className="reward-review-block">
-        <p className="reward-review-line">
-          <span className="reward-review-label">You said:</span>
-          <strong className="reward-review-phrase">{round.correctPhrase}</strong>
-        </p>
-        <p className="reward-review-line reward-review-line-guess">
-          <span className="reward-review-label">{round.recipientUsername} guessed:</span>
-          <strong className="reward-review-phrase">{round.guess || 'No guess submitted'}</strong>
-        </p>
-        <RewardPlaybackButton blob={round.originalAudioBlob} remoteUrl={round.originalAudioUrl} />
-      </div>
-
-      <div className="reward-review-block">
-        <p className="reward-review-line">{round.recipientUsername} heard:</p>
-        <RewardPlaybackButton blob={round.reversedAudioBlob} remoteUrl={round.reversedAudioUrl} />
-      </div>
-
-      <div className="reward-review-block">
-        <p className="reward-review-line">{round.recipientUsername} Babbled:</p>
-        <RewardPlaybackButton blob={round.attemptAudioBlob} remoteUrl={round.attemptAudioUrl} />
-      </div>
-
-      <div className="reward-review-block">
-        <p className="reward-review-line">{round.recipientUsername} Babble reversed:</p>
-        <RewardPlaybackButton
-          blob={round.attemptReversedBlob}
-          remoteUrl={round.attemptReversedUrl}
-        />
-      </div>
-    </div>
-  ) : null;
-  const headerEyebrow = isRecipient
-    ? recipientStage === 'reveal'
-      ? 'Reward Reveal'
-      : getRecipientStepLabel(recipientStage)
-    : showRewardPage
-      ? 'Reward Review'
-      : 'Round Review';
-  const headerTitle = isRecipient
-    ? recipientStage === 'reveal'
-      ? (roundSummary?.headline ?? 'Round')
-      : (roundSummary?.headline ?? 'Round')
-    : (roundSummary?.headline ?? 'Round');
-  const headerDescription = isRecipient
-    ? recipientStage === 'reveal'
-      ? 'See the score, compare the phrase, and bank your BB Coins when you continue.'
-      : (roundSummary?.description ?? '')
-    : showRewardPage
-      ? 'This screen settles your BB Coin reward for the round.'
-      : (roundSummary?.description ?? '');
-  const roundScreenClassName = showRewardPage ? 'round-screen round-screen-reward' : 'surface round-screen';
-
   const handleSubmitGuess = async () => {
+    const currentRound = round;
     const nextGuess = guess.trim();
-    if (!nextGuess || !isRecipient) {
+    if (!currentRound || !nextGuess || !isRecipient) {
       return;
     }
 
@@ -777,18 +679,18 @@ export function PlayRoundPanel({
 
     try {
       const updatedRound = await submitRoundGuess({
-        roundId: round.id,
+        roundId: currentRound.id,
         guess: nextGuess,
-        correctPhrase: round.correctPhrase,
-        difficulty: round.difficulty,
+        correctPhrase: currentRound.correctPhrase,
+        difficulty: currentRound.difficulty,
       });
 
-      onUpdateRound(round.id, (currentRound) => ({
+      onUpdateRound(currentRound.id, (existingRound) => ({
         ...updatedRound,
-        originalAudioBlob: currentRound.originalAudioBlob,
-        reversedAudioBlob: currentRound.reversedAudioBlob,
-        attemptAudioBlob: currentRound.attemptAudioBlob,
-        attemptReversedBlob: currentRound.attemptReversedBlob,
+        originalAudioBlob: existingRound.originalAudioBlob,
+        reversedAudioBlob: existingRound.reversedAudioBlob,
+        attemptAudioBlob: existingRound.attemptAudioBlob,
+        attemptReversedBlob: existingRound.attemptReversedBlob,
       }));
     } catch (caughtError) {
       setError(
@@ -833,6 +735,115 @@ export function PlayRoundPanel({
     [currentUserId, round, setCoinBalance, setCoinPreview],
   );
 
+  if (!round) {
+    return (
+      <section className="surface round-screen">
+        <div className="round-screen-header">
+          <button className="button ghost round-screen-back" onClick={onBack} type="button">
+            Back
+          </button>
+          <div className="round-screen-copy">
+            <div className="eyebrow">Round</div>
+            <h2>{isLoadingRound ? 'Loading thread' : 'No active round'}</h2>
+            <p>
+              {isLoadingRound
+                ? 'Fetching the current round and secure audio links for this thread.'
+                : 'Pick a friend from home to open the current thread.'}
+            </p>
+          </div>
+        </div>
+        {isLoadingRound ? (
+          <div className="round-screen-body">
+            <div className="round-loader-callout" aria-live="polite" role="status">
+              <WaveformLoader className="round-loader-callout-spinner" size={92} strokeWidth={3.6} />
+              <div>
+                <strong>Loading round...</strong>
+                <p>Preparing the latest audio for playback.</p>
+              </div>
+            </div>
+          </div>
+        ) : null}
+      </section>
+    );
+  }
+
+  const activeRound = round;
+  const showRewardPage = activeRound.status === 'complete';
+  const isSenderRewardPage = showRewardPage && !isRecipient;
+  const rewardResultSummary =
+    isRecipient && activeRound.status === 'complete' && scorePresentation ? (
+      <div className="reward-reveal-details">
+        <p>
+          <strong>You guessed:</strong> {activeRound.guess || 'No guess submitted'}
+        </p>
+        <p>
+          <strong>{activeRound.senderUsername} said:</strong> {activeRound.correctPhrase}
+        </p>
+      </div>
+    ) : null;
+  const senderRewardReview = isSenderRewardPage ? (
+    <div className="reward-review-stack">
+      <div className="reward-review-block">
+        <p className="reward-review-line">
+          <span className="reward-review-label">You said:</span>
+          <strong className="reward-review-phrase">{activeRound.correctPhrase}</strong>
+        </p>
+        <p className="reward-review-line reward-review-line-guess">
+          <span className="reward-review-label">{activeRound.recipientUsername} guessed:</span>
+          <strong className="reward-review-phrase">{activeRound.guess || 'No guess submitted'}</strong>
+        </p>
+        <RewardPlaybackButton
+          blob={activeRound.originalAudioBlob}
+          remoteUrl={activeRound.originalAudioUrl}
+        />
+      </div>
+
+      <div className="reward-review-block">
+        <p className="reward-review-line">{activeRound.recipientUsername} heard:</p>
+        <RewardPlaybackButton
+          blob={activeRound.reversedAudioBlob}
+          remoteUrl={activeRound.reversedAudioUrl}
+        />
+      </div>
+
+      <div className="reward-review-block">
+        <p className="reward-review-line">{activeRound.recipientUsername} Babbled:</p>
+        <RewardPlaybackButton
+          blob={activeRound.attemptAudioBlob}
+          remoteUrl={activeRound.attemptAudioUrl}
+        />
+      </div>
+
+      <div className="reward-review-block">
+        <p className="reward-review-line">{activeRound.recipientUsername} Babble reversed:</p>
+        <RewardPlaybackButton
+          blob={activeRound.attemptReversedBlob}
+          remoteUrl={activeRound.attemptReversedUrl}
+        />
+      </div>
+    </div>
+  ) : null;
+  const headerEyebrow = isRecipient
+    ? recipientStage === 'reveal'
+      ? 'Reward Reveal'
+      : getRecipientStepLabel(recipientStage)
+    : showRewardPage
+      ? 'Reward Review'
+      : 'Round Review';
+  const headerTitle = isRecipient
+    ? recipientStage === 'reveal'
+      ? (roundSummary?.headline ?? 'Round')
+      : (roundSummary?.headline ?? 'Round')
+    : (roundSummary?.headline ?? 'Round');
+  const headerDescription = isRecipient
+    ? recipientStage === 'reveal'
+      ? 'See the score, compare the phrase, and bank your BB Coins when you continue.'
+      : (roundSummary?.description ?? '')
+    : showRewardPage
+      ? 'This screen settles your BB Coin reward for the round.'
+      : (roundSummary?.description ?? '');
+  const roundScreenClassName = showRewardPage ? 'round-screen round-screen-reward' : 'surface round-screen';
+
   const handleReadyToImitate = async () => {
     await recorder.prepareRecording();
     setHasConfirmedListen(true);
@@ -857,6 +868,10 @@ export function PlayRoundPanel({
   };
 
   const handleArchiveRound = async () => {
+    if (!round) {
+      return;
+    }
+
     if (isRewardBusy) {
       return;
     }
@@ -893,32 +908,32 @@ export function PlayRoundPanel({
       <AudioPlayerCard
         title="Your original prompt"
         description="The forward recording that started this round."
-        blob={round.originalAudioBlob}
-        remoteUrl={round.originalAudioUrl}
+        blob={activeRound.originalAudioBlob}
+        remoteUrl={activeRound.originalAudioUrl}
       />
       <AudioPlayerCard
         title="Your reversed prompt"
         description="The backward clip your friend heard before imitating it."
-        blob={round.reversedAudioBlob}
-        remoteUrl={round.reversedAudioUrl}
+        blob={activeRound.reversedAudioBlob}
+        remoteUrl={activeRound.reversedAudioUrl}
       />
       <AudioPlayerCard
         title="Their imitation"
         description="Your friend's attempt at copying the reversed prompt."
-        blob={round.attemptAudioBlob}
-        remoteUrl={round.attemptAudioUrl}
+        blob={activeRound.attemptAudioBlob}
+        remoteUrl={activeRound.attemptAudioUrl}
       />
       <AudioPlayerCard
         title="Their imitation reversed"
         description="The flipped version they used when making their guess."
-        blob={round.attemptReversedBlob}
-        remoteUrl={round.attemptReversedUrl}
+        blob={activeRound.attemptReversedBlob}
+        remoteUrl={activeRound.attemptReversedUrl}
       />
     </div>
   );
 
   const rewardStatusCard =
-    round.status === 'complete' && roundReward ? (
+    activeRound.status === 'complete' && roundReward ? (
       <RoundRewardSequence
         baseCoins={rewardBaseCoinsRef.current}
         bonusReward={
@@ -943,8 +958,8 @@ export function PlayRoundPanel({
           <AudioPlayerCard
             title="Original phrase clip"
             description="Replay the forward clip if you want to compare it to your guess."
-            blob={round.originalAudioBlob}
-            remoteUrl={round.originalAudioUrl}
+            blob={activeRound.originalAudioBlob}
+            remoteUrl={activeRound.originalAudioUrl}
           />
         ) : senderRewardReview}
         {isRecipient ? (
@@ -962,7 +977,7 @@ export function PlayRoundPanel({
           </div>
         ) : null}
       </RoundRewardSequence>
-    ) : round.status === 'complete' ? (
+    ) : activeRound.status === 'complete' ? (
       isLoadingReward ? (
         <div aria-live="polite" className="reward-loading-shell" role="status">
           <WaveformLoader className="reward-loading-spinner" size={136} strokeWidth={4} />

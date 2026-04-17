@@ -1,332 +1,208 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import homeLogo from '../../../assets/backtalk-logo.png';
-import { StarRating } from '../../../components/StarRating';
-import { AuthPanel, type AuthMode } from '../../auth/components/AuthPanel';
-import { getActiveCampaignHome } from '../../../lib/campaigns';
+import { AuthPanel } from '../../auth/components/AuthPanel';
+import { CampaignPanel } from '../../campaign/components/CampaignPanel';
+import { type CampaignState, getActiveCampaignHome, type ActiveCampaignHome } from '../../../lib/campaigns';
+import {
+  createPublicCampaignDemoState,
+  persistPublicCampaignDemoState,
+  resetPublicCampaignDemoState,
+} from '../campaignDemo';
 import { supabaseConfigError } from '../../../lib/supabase';
 
-const PUBLIC_DEMO_WORDS = ['egg', 'nest', 'lamb', 'chick', 'bloom'] as const;
-const PUBLIC_DEMO_SCORE = 2.7;
+type PublicHomeMode = 'auth' | 'home';
 
-function scrollToSection(target: HTMLElement | null) {
-  if (!target || typeof window === 'undefined') {
-    return;
-  }
-
-  target.scrollIntoView({
-    behavior: 'smooth',
-    block: 'start',
-  });
+interface PublicHomePageProps {
+  mode: PublicHomeMode;
+  onOpenAuth: () => void;
+  onOpenHome: () => void;
 }
 
-function DemoStep({
-  description,
-  index,
-  state,
-  title,
-}: {
-  description: string;
-  index: number;
-  state: 'active' | 'done';
-  title: string;
-}) {
-  return (
-    <article className={`step-card ${state}`}>
-      <span className="step-number">{index}</span>
-      <div>
-        <h4>{title}</h4>
-        <p>{description}</p>
-      </div>
-    </article>
-  );
+function updateBannerImageStyle(imageUrl: string | null) {
+  return imageUrl ? { backgroundImage: `url("${imageUrl}")` } : undefined;
 }
 
-export function PublicHomePage() {
-  const [campaignBannerImage, setCampaignBannerImage] = useState<string | null>(null);
-  const [authMode, setAuthMode] = useState<AuthMode>('login');
-  const [authPanelKey, setAuthPanelKey] = useState(0);
-  const demoSectionRef = useRef<HTMLElement | null>(null);
-  const authSectionRef = useRef<HTMLElement | null>(null);
+export function PublicHomePage({
+  mode,
+  onOpenAuth,
+  onOpenHome,
+}: PublicHomePageProps) {
+  const [campaignHome, setCampaignHome] = useState<ActiveCampaignHome | null>(null);
+  const [demoCampaignState, setDemoCampaignState] = useState<CampaignState | null>(null);
+  const [isDemoOpen, setIsDemoOpen] = useState(false);
 
   useEffect(() => {
-    if (supabaseConfigError) {
-      return;
-    }
-
     let cancelled = false;
 
-    const loadCampaignBanner = async () => {
-      try {
-        const campaignHome = await getActiveCampaignHome();
+    const loadCampaignHome = async () => {
+      if (supabaseConfigError) {
+        const fallbackHome: ActiveCampaignHome = {
+          bannerImage: null,
+          campaignId: null,
+          challengeIcon: null,
+          subtitle: null,
+          title: 'Current Campaign',
+        };
 
         if (!cancelled) {
-          setCampaignBannerImage(campaignHome.bannerImage);
+          setCampaignHome(fallbackHome);
+          setDemoCampaignState(createPublicCampaignDemoState(fallbackHome));
+        }
+
+        return;
+      }
+
+      try {
+        const nextCampaignHome = await getActiveCampaignHome();
+
+        if (!cancelled) {
+          setCampaignHome(nextCampaignHome);
+          setDemoCampaignState(createPublicCampaignDemoState(nextCampaignHome));
         }
       } catch {
+        const fallbackHome: ActiveCampaignHome = {
+          bannerImage: null,
+          campaignId: null,
+          challengeIcon: null,
+          subtitle: null,
+          title: 'Current Campaign',
+        };
+
         if (!cancelled) {
-          setCampaignBannerImage(null);
+          setCampaignHome(fallbackHome);
+          setDemoCampaignState(createPublicCampaignDemoState(fallbackHome));
         }
       }
     };
 
-    void loadCampaignBanner();
+    void loadCampaignHome();
 
     return () => {
       cancelled = true;
     };
   }, []);
 
-  const handleOpenAuth = (nextMode: AuthMode) => {
-    setAuthMode(nextMode);
-    setAuthPanelKey((currentValue) => currentValue + 1);
-
-    if (typeof window !== 'undefined') {
-      window.requestAnimationFrame(() => {
-        scrollToSection(authSectionRef.current);
-      });
+  useEffect(() => {
+    if (mode === 'auth') {
+      setIsDemoOpen(false);
     }
+  }, [mode]);
+
+  const handleDemoStateChange = (nextState: CampaignState) => {
+    persistPublicCampaignDemoState(nextState);
+    setDemoCampaignState(nextState);
   };
 
+  const handleResetDemo = () => {
+    const nextState = resetPublicCampaignDemoState(campaignHome);
+    setDemoCampaignState(nextState);
+  };
+
+  if (mode === 'auth') {
+    return (
+      <div className="stack public-home-shell">
+        <div className="button-row public-home-top-actions">
+          <button
+            className="button ghost"
+            onClick={onOpenHome}
+            type="button"
+          >
+            Back
+          </button>
+        </div>
+
+        <AuthPanel />
+      </div>
+    );
+  }
+
+  if (isDemoOpen && demoCampaignState) {
+    return (
+      <div className="stack public-home-shell">
+        <div className="button-row public-home-top-actions">
+          <button
+            className="button ghost"
+            onClick={() => {
+              setIsDemoOpen(false);
+            }}
+            type="button"
+          >
+            Back
+          </button>
+          <button
+            className="button secondary"
+            onClick={handleResetDemo}
+            type="button"
+          >
+            Restart Demo
+          </button>
+          <button
+            className="button primary"
+            onClick={onOpenAuth}
+            type="button"
+          >
+            Play Now
+          </button>
+        </div>
+
+        <CampaignPanel
+          demoState={demoCampaignState}
+          hideLeaderboard
+          mode="demo"
+          onDemoStateChange={handleDemoStateChange}
+        />
+      </div>
+    );
+  }
+
   return (
-    <div className="stack public-home-shell">
-      <section className="surface public-home-hero">
-        <div className="public-home-brand">
-          <img alt="BabbleBack" className="public-home-logo" src={homeLogo} />
-          <span className="eyebrow">Reverse. Repeat. Laugh.</span>
+    <section className="surface home-shell public-home-panel">
+      <div className="section-header compact-header public-home-header">
+        <div>
+          <img alt="BabbleBack" className="auth-brand-logo public-home-logo" src={homeLogo} />
+          <h2>Reverse it. Say it back.</h2>
+          <p>Try the first 5 campaign levels, or jump in for real.</p>
         </div>
+      </div>
 
-        <div className="public-home-hero-grid">
-          <div className="public-home-copy">
-            <h1>Hear it backwards. Say it back. See how close you got.</h1>
-            <p>
-              BabbleBack is a playful voice game: listen to reversed words, imitate the sound,
-              reverse your attempt back, and see how close you were.
-            </p>
+      <button
+        className="campaign-home-banner public-home-banner-button"
+        disabled={!demoCampaignState}
+        onClick={() => {
+          setIsDemoOpen(true);
+        }}
+        type="button"
+      >
+        {campaignHome?.bannerImage ? (
+          <div
+            aria-hidden="true"
+            className="campaign-home-banner-image"
+            style={updateBannerImageStyle(campaignHome.bannerImage)}
+          />
+        ) : (
+          <div aria-hidden="true" className="campaign-home-banner-image public-home-banner-fallback" />
+        )}
+        <span aria-hidden="true" className="campaign-home-banner-play-button">
+          <span>Try Now</span>
+        </span>
+      </button>
 
-            <div className="button-row hero-actions public-home-actions">
-              <button
-                className="button primary"
-                onClick={() => {
-                  handleOpenAuth('login');
-                }}
-                type="button"
-              >
-                Log In
-              </button>
-              <button
-                className="button secondary"
-                onClick={() => {
-                  handleOpenAuth('register');
-                }}
-                type="button"
-              >
-                Sign Up
-              </button>
-              <button
-                className="button ghost"
-                onClick={() => {
-                  scrollToSection(demoSectionRef.current);
-                }}
-                type="button"
-              >
-                See Demo
-              </button>
-            </div>
-          </div>
+      <div className="empty-state home-empty public-home-note">
+        <h3>{campaignHome?.title ?? 'Current Campaign'}</h3>
+        <p>{campaignHome?.subtitle ?? 'Try the first 5 levels for free.'}</p>
+      </div>
 
-          <div className="public-home-side">
-            <div className="meta-chip">
-              <strong>Private by default</strong>
-              <span>Real games stay between you and your friends.</span>
-            </div>
-            <div className="meta-chip">
-              <strong>Fast party-game loop</strong>
-              <span>Listen, imitate, reverse it back, then chase the stars.</span>
-            </div>
-            <div className="meta-chip">
-              <strong>Mobile friendly</strong>
-              <span>Built for quick rounds, goofy takes, and instant rematches.</span>
-            </div>
-          </div>
+      <div className="home-footer public-home-footer">
+        <div className="button-row">
+          <button
+            className="button primary"
+            onClick={onOpenAuth}
+            type="button"
+          >
+            Play Now
+          </button>
         </div>
-      </section>
-
-      <section className="surface public-home-campaign">
-        <div className="section-header compact-header">
-          <div>
-            <div className="eyebrow">Current Campaign</div>
-            <h2>Easter Campaign</h2>
-            <p>Jump into the live seasonal set, or preview a five-word public demo first.</p>
-          </div>
-        </div>
-
-        <div className="campaign-banner-card public-home-banner-card">
-          {campaignBannerImage ? (
-            <img
-              alt="Current BabbleBack campaign banner"
-              className="campaign-banner-image"
-              src={campaignBannerImage}
-            />
-          ) : (
-            <div aria-hidden="true" className="campaign-banner-fallback public-home-banner-fallback" />
-          )}
-
-          <div className="public-home-banner-overlay">
-            <span className="badge primary">Seasonal Event</span>
-            <strong>Easter Campaign</strong>
-            <span>100 challenges, egg rewards, and a fresh road to clear.</span>
-          </div>
-        </div>
-      </section>
-
-      <section className="surface public-demo-shell" ref={demoSectionRef}>
-        <div className="section-header compact-header">
-          <div>
-            <div className="eyebrow">Public Demo</div>
-            <h2>Try the single-player vibe</h2>
-            <p>
-              This is a lightweight public slice of campaign mode using the same style language as
-              the app, with five fixed easy words from the current campaign.
-            </p>
-          </div>
-        </div>
-
-        <div className="public-demo-grid">
-          <div className="public-demo-column">
-            <div className="result-box campaign-phrase-card public-demo-word-focus">
-              <span className="campaign-phrase-label">Demo word</span>
-              <strong>{PUBLIC_DEMO_WORDS[0]}</strong>
-              <p>Pick from the same five easy Easter words every time the homepage loads.</p>
-            </div>
-
-            <div className="phrase-chip-row public-demo-chip-row" role="list">
-              {PUBLIC_DEMO_WORDS.map((word, index) => (
-                <span
-                  className={`phrase-chip ${index === 0 ? 'selected' : ''}`}
-                  key={word}
-                  role="listitem"
-                >
-                  {word}
-                </span>
-              ))}
-            </div>
-
-            <div className="guided-steps">
-              <DemoStep
-                description="Hear the reversed word the way the campaign would play it."
-                index={1}
-                state="done"
-                title="Listen"
-              />
-              <DemoStep
-                description="Imitate what you hear and try to make the backward sounds line up."
-                index={2}
-                state="done"
-                title="Record"
-              />
-              <DemoStep
-                description="Reverse your attempt back and score how close you got."
-                index={3}
-                state="active"
-                title="Score"
-              />
-            </div>
-          </div>
-
-          <div className="public-demo-column">
-            <div className="audio-grid">
-              <article className="audio-card">
-                <div className="audio-card-head">
-                  <div>
-                    <h4>Reversed Clip</h4>
-                  </div>
-                  <span className="badge attempted">Listen</span>
-                </div>
-                <p>Hear how the demo word sounds when the game flips it backwards.</p>
-                <div className="public-demo-audio-shell">
-                  <div aria-hidden="true" className="public-demo-waveform">
-                    <span />
-                    <span />
-                    <span />
-                    <span />
-                    <span />
-                    <span />
-                  </div>
-                  <span className="button ghost public-demo-audio-button">Play Sample</span>
-                </div>
-              </article>
-
-              <article className="audio-card">
-                <div className="audio-card-head">
-                  <div>
-                    <h4>Your Attempt</h4>
-                  </div>
-                  <span className="badge complete">Mock Record</span>
-                </div>
-                <p>Public demo only, so this stays visual and lightweight with no mic required.</p>
-                <div className="public-demo-audio-shell">
-                  <div aria-hidden="true" className="public-demo-waveform public-demo-waveform-attempt">
-                    <span />
-                    <span />
-                    <span />
-                    <span />
-                    <span />
-                    <span />
-                  </div>
-                  <span className="button secondary public-demo-audio-button">Record Feel</span>
-                </div>
-              </article>
-            </div>
-
-            <div className="campaign-result-card">
-              <div className="campaign-result-hero">
-                <div>
-                  <h3>Sample result</h3>
-                  <p>Flip the take back forward and BabbleBack scores how close you got.</p>
-                </div>
-                <div className="campaign-result-stars">
-                  <strong>{PUBLIC_DEMO_SCORE.toFixed(1)} / 3 stars</strong>
-                  <StarRating
-                    label={`Sample score ${PUBLIC_DEMO_SCORE.toFixed(1)} out of 3 stars`}
-                    value={PUBLIC_DEMO_SCORE}
-                  />
-                </div>
-              </div>
-
-              <div className="campaign-result-metrics">
-                <div className="campaign-result-metric">
-                  <span>Closest Word</span>
-                  <strong>{PUBLIC_DEMO_WORDS[0]}</strong>
-                </div>
-                <div className="campaign-result-metric">
-                  <span>Difficulty</span>
-                  <strong>Easy warm-up</strong>
-                </div>
-                <div className="campaign-result-metric">
-                  <span>Campaign Reward</span>
-                  <strong>+1 egg</strong>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="info-banner public-demo-note">
-          Public demo only. No login, mic, or saved progress needed here.
-        </div>
-      </section>
-
-      <section className="public-home-auth-section" ref={authSectionRef}>
-        <div className="section-header compact-header public-home-auth-header">
-          <div>
-            <div className="eyebrow">Start Playing</div>
-            <h2>Log in or make an account</h2>
-            <p>Signed-in players skip this page and go straight into the normal app flow.</p>
-          </div>
-        </div>
-
-        <AuthPanel initialMode={authMode} key={`public-auth-${authMode}-${authPanelKey}`} />
-      </section>
-    </div>
+      </div>
+    </section>
   );
 }

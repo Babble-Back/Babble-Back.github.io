@@ -3097,91 +3097,42 @@ p {
   margin: 0 auto;
 }
 
-.public-home-shell,
-.public-home-hero,
-.public-home-copy,
-.public-home-side,
-.public-home-campaign,
-.public-demo-shell,
-.public-demo-column,
-.public-home-auth-section {
-  display: grid;
-  gap: 16px;
-}
-
 .public-home-shell {
   gap: 18px;
 }
 
-.public-home-hero {
-  padding: 22px;
-  background:
-    linear-gradient(145deg, rgba(255, 255, 255, 0.97), rgba(255, 250, 246, 0.9)),
-    radial-gradient(circle at top right, rgba(255, 99, 84, 0.18), transparent 36%),
-    radial-gradient(circle at bottom left, rgba(77, 121, 255, 0.14), transparent 34%);
+.public-home-panel {
+  max-width: 720px;
+  margin: 0 auto;
 }
 
-.public-home-brand {
-  display: grid;
-  justify-items: start;
-  gap: 12px;
+.public-home-top-actions {
+  justify-content: center;
 }
 
-.public-home-logo {
-  display: block;
-  width: min(360px, 78vw);
-  height: auto;
-  object-fit: contain;
-}
-
-.public-home-hero-grid,
-.public-demo-grid {
-  display: grid;
-  gap: 18px;
-}
-
-.public-home-copy h1 {
-  margin-bottom: 0;
-  font-size: clamp(2.35rem, 6vw, 4.4rem);
-  line-height: 0.92;
-}
-
-.public-home-copy p {
-  margin-bottom: 0;
-  max-width: 34rem;
-  color: var(--muted);
-  font-size: 1.02rem;
-}
-
-.public-home-actions > * {
+.public-home-top-actions > * {
   flex: 0 1 auto;
 }
 
-.public-home-banner-card {
-  position: relative;
+.public-home-header {
+  justify-content: center;
+  text-align: center;
 }
 
-.public-home-banner-overlay {
-  position: absolute;
-  left: 16px;
-  right: 16px;
-  bottom: 16px;
-  display: grid;
-  gap: 6px;
-  padding: 14px 16px;
-  border-radius: 22px;
-  background: rgba(255, 255, 255, 0.88);
-  border: 1px solid rgba(255, 255, 255, 0.45);
-  box-shadow: 0 18px 34px rgba(17, 23, 40, 0.14);
-  backdrop-filter: blur(16px);
+.public-home-header h2 {
+  margin-bottom: 6px;
 }
 
-.public-home-banner-overlay strong {
-  font-size: 1.12rem;
+.public-home-header p {
+  margin-bottom: 0;
 }
 
-.public-home-banner-overlay span:last-child {
-  color: var(--muted);
+.public-home-logo {
+  max-width: min(300px, 74vw);
+}
+
+.public-home-banner-button {
+  margin-bottom: 0;
 }
 
 .public-home-banner-fallback {
@@ -3191,79 +3142,20 @@ p {
     linear-gradient(135deg, rgba(255, 244, 228, 0.98), rgba(255, 210, 231, 0.92), rgba(198, 236, 255, 0.95));
 }
 
-.public-demo-word-focus p {
+.public-home-note {
+  margin: 0;
+}
+
+.public-home-note h3 {
+  margin-bottom: 8px;
+}
+
+.public-home-note p {
   margin-bottom: 0;
 }
 
-.public-demo-chip-row {
-  gap: 10px;
-}
-
-.public-demo-audio-shell {
-  display: grid;
-  gap: 14px;
-  justify-items: center;
-  padding: 18px;
-  border-radius: 22px;
-  border: 1px solid rgba(19, 33, 44, 0.07);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(247, 250, 255, 0.86)),
-    rgba(255, 255, 255, 0.88);
-}
-
-.public-demo-audio-button {
-  min-width: 142px;
-  pointer-events: none;
-}
-
-.public-demo-waveform {
-  display: flex;
-  align-items: end;
-  gap: 8px;
-  min-height: 56px;
-}
-
-.public-demo-waveform span {
-  width: 10px;
-  border-radius: 999px;
-  background: linear-gradient(180deg, var(--sky), var(--accent));
-}
-
-.public-demo-waveform span:nth-child(1) {
-  height: 22px;
-}
-
-.public-demo-waveform span:nth-child(2) {
-  height: 44px;
-}
-
-.public-demo-waveform span:nth-child(3) {
-  height: 30px;
-}
-
-.public-demo-waveform span:nth-child(4) {
-  height: 52px;
-}
-
-.public-demo-waveform span:nth-child(5) {
-  height: 36px;
-}
-
-.public-demo-waveform span:nth-child(6) {
-  height: 26px;
-}
-
-.public-demo-waveform-attempt span {
-  background: linear-gradient(180deg, var(--mint), var(--accent-strong));
-}
-
-.public-demo-note {
-  margin-top: 2px;
-  font-weight: 700;
-}
-
-.public-home-auth-header {
-  justify-content: center;
+.public-home-footer {
+  margin-top: 0;
 }
 
 .auth-brand-logo {
@@ -3284,12 +3176,6 @@ p {
 @media (min-width: 961px) {
   .shell-drawer-panel {
     width: 304px;
-  }
-
-  .public-home-hero-grid,
-  .public-demo-grid {
-    grid-template-columns: minmax(0, 1.15fr) minmax(280px, 0.85fr);
-    align-items: start;
   }
 }
 
@@ -3373,7 +3259,7 @@ p {
     text-align: left;
   }
 
-  .public-home-actions > * {
+  .public-home-top-actions > * {
     flex: 1 1 160px;
   }
 }
@@ -3429,16 +3315,8 @@ p {
     height: 20px;
   }
 
-  .public-home-hero {
+  .public-home-panel {
     padding: 18px;
-  }
-
-  .public-home-banner-overlay {
-    left: 12px;
-    right: 12px;
-    bottom: 12px;
-    padding: 12px 14px;
-    border-radius: 18px;
   }
 
   .reward-sequence-stars {

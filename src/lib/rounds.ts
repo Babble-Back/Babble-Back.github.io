@@ -372,23 +372,14 @@ function mapFallbackHomeThreads(
   return [...threadMap.values()];
 }
 
-export async function listHomeThreads(): Promise<HomeThreadSummary[]> {
+export async function listHomeThreads(currentUserId?: string | null): Promise<HomeThreadSummary[]> {
   const client = requireSupabase();
   let { data, error } = await client.rpc('list_home_threads');
 
   if (error && /list_home_threads/i.test(error.message)) {
-    const {
-      data: authData,
-      error: authError,
-    } = await client.auth.getUser();
+    const resolvedCurrentUserId = currentUserId?.trim() || null;
 
-    if (authError) {
-      throw new Error(`Unable to read the current user: ${authError.message}`);
-    }
-
-    const currentUserId = authData.user?.id ?? null;
-
-    if (!currentUserId) {
+    if (!resolvedCurrentUserId) {
       return [];
     }
 
@@ -402,7 +393,7 @@ export async function listHomeThreads(): Promise<HomeThreadSummary[]> {
     }
 
     return mapFallbackHomeThreads(
-      currentUserId,
+      resolvedCurrentUserId,
       ((fallbackResult.data as unknown as HomeRoundSummaryRow[] | null) ?? []),
     );
   }

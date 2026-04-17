@@ -35,7 +35,7 @@ import { InstallAppPrompt } from './pwa/InstallAppPrompt';
 import { CoinDisplay, ResourceProvider } from './features/resources/ResourceProvider';
 
 type View = 'home' | 'thread';
-type AppPath = '/' | '/campaign' | '/inventory';
+type AppPath = '/' | '/auth' | '/campaign' | '/inventory';
 interface AppRoute {
   appPath: AppPath;
   view: View;
@@ -57,6 +57,14 @@ function createThreadRoute(friendId: string): AppRoute {
     appPath: '/',
     view: 'thread',
     friendId,
+  };
+}
+
+function createAuthRoute(): AppRoute {
+  return {
+    appPath: '/auth',
+    view: DEFAULT_SIGNED_IN_VIEW,
+    friendId: null,
   };
 }
 
@@ -112,6 +120,10 @@ function getAppRelativePath() {
     return '/campaign';
   }
 
+  if (appRelativePath === '/auth') {
+    return '/auth';
+  }
+
   if (appRelativePath === '/inventory') {
     return '/inventory';
   }
@@ -127,6 +139,10 @@ function getAppRoute(): AppRoute {
   const appRelativePath = getAppRelativePath();
   if (appRelativePath === '/campaign') {
     return createCampaignRoute();
+  }
+
+  if (appRelativePath === '/auth') {
+    return createAuthRoute();
   }
 
   if (appRelativePath === '/inventory') {
@@ -150,7 +166,7 @@ function buildAppRouteUrl(route: AppRoute) {
   const basePath = getNormalizedBasePath();
   const pathname = `${basePath}${route.appPath === '/' ? '' : route.appPath}` || '/';
 
-  if (route.appPath === '/campaign' || route.appPath === '/inventory') {
+  if (route.appPath === '/auth' || route.appPath === '/campaign' || route.appPath === '/inventory') {
     return pathname;
   }
 
@@ -449,6 +465,20 @@ function App() {
   }, [applyRouteState]);
 
   useEffect(() => {
+    if (!currentUserId) {
+      if (appPath === '/campaign' || appPath === '/inventory' || view === 'thread') {
+        navigateToRoute(createHomeRoute(), { replace: true });
+      }
+
+      return;
+    }
+
+    if (appPath === '/auth') {
+      navigateToRoute(createHomeRoute(), { replace: true });
+    }
+  }, [appPath, currentUserId, navigateToRoute, view]);
+
+  useEffect(() => {
     if (supabaseConfigError) {
       setIsAuthLoading(false);
       return;
@@ -574,7 +604,7 @@ function App() {
           getMyProfile(),
           listFriends(currentUserId),
           listFriendRequests(currentUserId),
-          listHomeThreads(),
+          listHomeThreads(currentUserId),
         ]);
 
         setProfile(nextProfile);
@@ -976,7 +1006,15 @@ function App() {
         {isAuthLoading ? (
           <FullscreenLoadingScreen />
         ) : !currentUserId ? (
-          <PublicHomePage />
+          <PublicHomePage
+            mode={appPath === '/auth' ? 'auth' : 'home'}
+            onOpenAuth={() => {
+              navigateToRoute(createAuthRoute());
+            }}
+            onOpenHome={() => {
+              navigateToRoute(createHomeRoute());
+            }}
+          />
         ) : showFullscreenLoader ? (
           <FullscreenLoadingScreen />
         ) : (

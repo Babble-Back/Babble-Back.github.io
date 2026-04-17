@@ -1,4 +1,5 @@
 import { normalizePackText, type WordDifficulty } from '../utils/difficulty';
+import { getSession } from './auth';
 import { supabase, supabaseConfigError } from './supabase';
 export type { WordDifficulty } from '../utils/difficulty';
 
@@ -459,14 +460,8 @@ export async function listWordPacks(options?: {
 }
 
 async function getCurrentUserId() {
-  const client = requireSupabase();
-  const { data, error } = await client.auth.getUser();
-
-  if (error) {
-    throw new Error(`Unable to read the current user: ${error.message}`);
-  }
-
-  return data.user?.id ?? null;
+  const session = await getSession();
+  return session?.user.id ?? null;
 }
 
 export async function listWordPackUnlocks(options?: {
