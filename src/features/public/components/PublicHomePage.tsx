@@ -335,13 +335,6 @@ export function PublicHomePage({
           </span>
         </button>
       </section>
-
-      <div className="home-footer public-home-footer">
-        <p className="public-home-about">
-          BabbleBack is a fun voice game where reversed audio, speech, and scoring come together
-          for solo play and friendly competition.
-        </p>
-      </div>
     </section>
   );
 }
