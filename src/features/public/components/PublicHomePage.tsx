@@ -17,8 +17,37 @@ import {
   resetPublicCampaignDemoStateFromBase,
 } from '../campaignDemo';
 import { supabaseConfigError } from '../../../lib/supabase';
+import type { AuthMode } from '../../auth/components/AuthPanel';
 
 type PublicHomeMode = 'auth' | 'home';
+
+const HOME_STEPS = [
+  {
+    description: 'Hear a word played in reverse.',
+    title: 'Listen',
+  },
+  {
+    description: 'Repeat what you think you heard.',
+    title: 'Say It Back',
+  },
+  {
+    description: 'We score how close your answer was.',
+    title: 'Get Your Score',
+  },
+] as const;
+
+const PLAY_MODES = [
+  {
+    description:
+      'Work through themed levels, practice easy to hard words, and improve your score.',
+    title: 'Solo Campaign',
+  },
+  {
+    description:
+      'Challenge friends, send attempts back and forth, and see who can match the words best.',
+    title: 'Play With Friends',
+  },
+] as const;
 
 interface PublicHomePageProps {
   mode: PublicHomeMode;
@@ -38,6 +67,7 @@ export function PublicHomePage({
   const [campaignHome, setCampaignHome] = useState<ActiveCampaignHome | null>(null);
   const [demoBase, setDemoBase] = useState<PublicCampaignDemoBase | null>(null);
   const [demoCampaignState, setDemoCampaignState] = useState<CampaignState | null>(null);
+  const [authMode, setAuthMode] = useState<AuthMode>('login');
   const [isDemoOpen, setIsDemoOpen] = useState(false);
 
   useEffect(() => {
@@ -132,6 +162,11 @@ export function PublicHomePage({
     setDemoCampaignState(nextState);
   };
 
+  const handleOpenAuth = (nextMode: AuthMode) => {
+    setAuthMode(nextMode);
+    onOpenAuth();
+  };
+
   if (mode === 'auth') {
     return (
       <div className="stack public-home-shell">
@@ -145,7 +180,7 @@ export function PublicHomePage({
           </button>
         </div>
 
-        <AuthPanel />
+        <AuthPanel initialMode={authMode} />
       </div>
     );
   }
@@ -172,7 +207,9 @@ export function PublicHomePage({
           </button>
           <button
             className="button primary"
-            onClick={onOpenAuth}
+            onClick={() => {
+              handleOpenAuth('login');
+            }}
             type="button"
           >
             Play Now
@@ -191,51 +228,126 @@ export function PublicHomePage({
 
   return (
     <section className="surface home-shell public-home-panel">
-      <div className="section-header compact-header public-home-header">
+      <div className="section-header compact-header public-home-header public-home-hero">
         <div>
           <img alt="BabbleBack" className="auth-brand-logo public-home-logo" src={homeLogo} />
-          <h2>Reverse it. Say it back.</h2>
-          <p>Try the first 5 campaign levels, or jump in for real.</p>
+          <h1 className="public-home-headline">Reverse it. Say it back.</h1>
+          <p>
+            A voice game where you listen to reversed words, copy what you hear, and see how
+            close you get. Play by yourself or challenge your friends.
+          </p>
         </div>
-      </div>
 
-      <button
-        className="campaign-home-banner public-home-banner-button"
-        disabled={!demoCampaignState}
-        onClick={() => {
-          setIsDemoOpen(true);
-        }}
-        type="button"
-      >
-        {campaignHome?.bannerImage ? (
-          <div
-            aria-hidden="true"
-            className="campaign-home-banner-image"
-            style={updateBannerImageStyle(campaignHome.bannerImage)}
-          />
-        ) : (
-          <div aria-hidden="true" className="campaign-home-banner-image public-home-banner-fallback" />
-        )}
-        <span aria-hidden="true" className="campaign-home-banner-play-button">
-          <span>Try Now</span>
-        </span>
-      </button>
-
-      <div className="empty-state home-empty public-home-note">
-        <h3>{campaignHome?.title ?? 'Current Campaign'}</h3>
-        <p>{campaignHome?.subtitle ?? 'Try the first 5 levels for free.'}</p>
-      </div>
-
-      <div className="home-footer public-home-footer">
-        <div className="button-row">
+        <div className="button-row public-home-hero-actions">
           <button
             className="button primary"
-            onClick={onOpenAuth}
+            onClick={() => {
+              handleOpenAuth('login');
+            }}
             type="button"
           >
             Play Now
           </button>
+          <button
+            className="button secondary"
+            onClick={() => {
+              handleOpenAuth('register');
+            }}
+            type="button"
+          >
+            Sign Up
+          </button>
         </div>
+      </div>
+
+      <section className="stack public-home-section">
+        <div className="section-header compact-header">
+          <div>
+            <h2>How It Works</h2>
+          </div>
+        </div>
+
+        <div className="public-home-steps">
+          {HOME_STEPS.map((step, index) => (
+            <article className="step-card public-home-step-card" key={step.title}>
+              <span className="step-number">{index + 1}</span>
+              <div>
+                <h4>{step.title}</h4>
+                <p>{step.description}</p>
+              </div>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section className="stack public-home-section">
+        <div className="section-header compact-header">
+          <div>
+            <h2>Play Your Way</h2>
+          </div>
+        </div>
+
+        <div className="public-home-card-grid">
+          {PLAY_MODES.map((modeCard) => (
+            <article className="list-card public-home-play-card" key={modeCard.title}>
+              <div>
+                <h3>{modeCard.title}</h3>
+                <p>{modeCard.description}</p>
+              </div>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section className="stack public-home-section">
+        <div className="section-header compact-header">
+          <div>
+            <h2>Current Campaign</h2>
+            <p>Try the first 5 levels for free in our current themed campaign.</p>
+          </div>
+        </div>
+
+        <div className="section-header compact-header public-home-demo-header">
+          <div>
+            <h3>Try a Quick Demo</h3>
+            <p>
+              Preview the first 5 campaign levels with a simple sample of the single-player
+              experience.
+            </p>
+          </div>
+        </div>
+
+        <button
+          className="campaign-home-banner public-home-banner-button"
+          disabled={!demoCampaignState}
+          onClick={() => {
+            setIsDemoOpen(true);
+          }}
+          type="button"
+        >
+          {campaignHome?.bannerImage ? (
+            <div
+              aria-hidden="true"
+              className="campaign-home-banner-image"
+              style={updateBannerImageStyle(campaignHome.bannerImage)}
+            />
+          ) : (
+            <div
+              aria-hidden="true"
+              className="campaign-home-banner-image public-home-banner-fallback"
+            />
+          )}
+          <span aria-hidden="true" className="campaign-home-banner-play-button">
+            <span>Play Demo</span>
+          </span>
+        </button>
+      </section>
+
+      <div className="home-footer public-home-footer">
+        <p className="public-home-about">
+          BabbleBack is a fun voice game where reversed audio, speech, and scoring come together
+          for solo play and friendly competition.
+        </p>
       </div>
     </section>
   );
