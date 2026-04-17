@@ -28,7 +28,7 @@ const HOME_STEPS = [
   },
   {
     description: 'They listen, copy what they hear, and send it back.',
-    title: 'Say It Back',
+    title: 'Babble It Back',
   },
   {
     description: 'See the score and compare how close they got.',
@@ -231,7 +231,7 @@ export function PublicHomePage({
       <div className="section-header compact-header public-home-header public-home-hero">
         <div>
           <img alt="BabbleBack" className="auth-brand-logo public-home-logo" src={homeLogo} />
-          <h1 className="public-home-headline">Reverse it. Say it back.</h1>
+          <h1 className="public-home-headline">Reverse it. Babble it back.</h1>
           <p>
             Challenge your friends with reversed words, hear what they say back, and see how
             close they get. Play together for fun, or sharpen your skills in solo campaign mode.

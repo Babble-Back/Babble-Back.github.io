@@ -3149,7 +3149,9 @@ p {
 }
 
 .public-home-logo {
-  max-width: min(300px, 74vw);
+  width: min(100%, 560px);
+  max-width: 100%;
+  height: auto;
 }
 
 .public-home-section {
