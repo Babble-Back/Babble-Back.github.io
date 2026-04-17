@@ -237,8 +237,7 @@ export function PublicHomePage({
           <img alt="BabbleBack" className="auth-brand-logo public-home-logo" src={homeLogo} />
           <h1 className="public-home-headline">Reverse it. Babble it back.</h1>
           <p>
-            Challenge your friends with reversed words, hear what they say back, and see how
-            close they get. Play together for fun, or sharpen your skills in solo campaign mode.
+            Work together with friends to climb the rankings—send reversed words, hear their responses, and see how close you all get. Compete in solo events to unlock multiplayer expansions.
           </p>
         </div>
 
