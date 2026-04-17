@@ -23,23 +23,23 @@ type PublicHomeMode = 'auth' | 'home';
 
 const HOME_STEPS = [
   {
-    description: 'Hear a word played in reverse.',
-    title: 'Listen',
+    description: 'Send a friend a reversed word challenge.',
+    title: 'Challenge',
   },
   {
-    description: 'Repeat what you think you heard.',
+    description: 'They listen, copy what they hear, and send it back.',
     title: 'Say It Back',
   },
   {
-    description: 'We score how close your answer was.',
-    title: 'Get Your Score',
+    description: 'See the score and compare how close they got.',
+    title: 'See the Score',
   },
 ] as const;
 
 const PLAY_MODES = [
   {
     description:
-      'Work through themed levels, practice easy to hard words, and improve your score.',
+      'Work through themed levels, sharpen your ear, and unlock more word sets to bring into friend games.',
     title: 'Solo Campaign',
   },
   {
@@ -233,8 +233,8 @@ export function PublicHomePage({
           <img alt="BabbleBack" className="auth-brand-logo public-home-logo" src={homeLogo} />
           <h1 className="public-home-headline">Reverse it. Say it back.</h1>
           <p>
-            A voice game where you listen to reversed words, copy what you hear, and see how
-            close you get. Play by yourself or challenge your friends.
+            Challenge your friends with reversed words, hear what they say back, and see how
+            close they get. Play together for fun, or sharpen your skills in solo campaign mode.
           </p>
         </div>
 
@@ -300,20 +300,10 @@ export function PublicHomePage({
       </section>
 
       <section className="stack public-home-section">
-        <div className="section-header compact-header">
-          <div>
-            <h2>Current Campaign</h2>
-            <p>Try the first 5 levels for free in our current themed campaign.</p>
-          </div>
-        </div>
-
         <div className="section-header compact-header public-home-demo-header">
           <div>
-            <h3>Try a Quick Demo</h3>
-            <p>
-              Preview the first 5 campaign levels with a simple sample of the single-player
-              experience.
-            </p>
+            <h2>Try a Quick Demo</h2>
+            <p>Try the first 5 solo campaign levels.</p>
           </div>
         </div>
 
