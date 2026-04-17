@@ -1,6 +1,8 @@
 import type { Round } from '../features/rounds/types';
 import type { ArchiveCompletedRoundSummary } from '../features/rounds/types';
+import type { HomeThreadSummary } from '../features/rounds/types';
 import type { RoundListenState } from '../features/rounds/types';
+import type { RoundSummary } from '../features/rounds/types';
 import type { RoundStarCount } from '../features/rounds/types';
 import { scoreGuess } from '../features/rounds/utils';
 import { computeDifficulty, normalizePackText, type WordDifficulty } from '../utils/difficulty';
@@ -25,6 +27,15 @@ const ROUND_COLUMNS = [
   'guess',
   'attempt_audio_path',
   'attempt_reversed_path',
+  'score',
+  'status',
+].join(', ');
+
+const ROUND_HOME_COLUMNS = [
+  'id',
+  'created_at',
+  'sender_id',
+  'recipient_id',
   'score',
   'status',
 ].join(', ');
@@ -103,6 +114,39 @@ interface RoundListenStateRow {
   charged: boolean;
 }
 
+interface HomeThreadSummaryRow {
+  friend_id: string;
+  latest_round_id: string | null;
+  latest_round_created_at: string | null;
+  latest_round_sender_id: string | null;
+  latest_round_recipient_id: string | null;
+  latest_round_score: number | null;
+  latest_round_status: Round['status'] | null;
+  active_round_id: string | null;
+  active_round_created_at: string | null;
+  active_round_sender_id: string | null;
+  active_round_recipient_id: string | null;
+  active_round_score: number | null;
+  active_round_status: Round['status'] | null;
+  review_round_id: string | null;
+  review_round_created_at: string | null;
+  review_round_sender_id: string | null;
+  review_round_recipient_id: string | null;
+  review_round_score: number | null;
+  review_round_status: Round['status'] | null;
+  current_round_count: number | null;
+  last_active_at: string | null;
+}
+
+interface HomeRoundSummaryRow {
+  id: string;
+  created_at: string;
+  sender_id: string;
+  recipient_id: string;
+  score: number | null;
+  status: Round['status'];
+}
+
 export const difficultyMultiplier: Record<WordDifficulty, number> = {
   easy: 1,
   medium: 2,
@@ -172,14 +216,22 @@ function mapRoundListenStateRow(row: RoundListenStateRow): RoundListenState {
   };
 }
 
-async function mapRoundRow(row: RoundRow): Promise<Round> {
+async function mapRoundRow(
+  row: RoundRow,
+  options?: {
+    includeAudioUrls?: boolean;
+  },
+): Promise<Round> {
+  const shouldIncludeAudioUrls = options?.includeAudioUrls ?? true;
   const [originalAudioUrl, reversedAudioUrl, attemptAudioUrl, attemptReversedUrl] =
-    await Promise.all([
-      createSignedAudioUrl(row.original_audio_path),
-      createSignedAudioUrl(row.reversed_audio_path),
-      createSignedAudioUrl(row.attempt_audio_path),
-      createSignedAudioUrl(row.attempt_reversed_path),
-    ]);
+    shouldIncludeAudioUrls
+      ? await Promise.all([
+          createSignedAudioUrl(row.original_audio_path),
+          createSignedAudioUrl(row.reversed_audio_path),
+          createSignedAudioUrl(row.attempt_audio_path),
+          createSignedAudioUrl(row.attempt_reversed_path),
+        ])
+      : [null, null, null, null];
 
   return {
     id: row.id,
@@ -207,18 +259,184 @@ async function mapRoundRow(row: RoundRow): Promise<Round> {
   };
 }
 
-export async function listRounds(): Promise<Round[]> {
+function mapHomeThreadRound(options: {
+  createdAt: string | null;
+  id: string | null;
+  recipientId: string | null;
+  score: number | null;
+  senderId: string | null;
+  status: Round['status'] | null;
+}): RoundSummary | null {
+  if (
+    !options.id ||
+    !options.createdAt ||
+    !options.senderId ||
+    !options.recipientId ||
+    !options.status
+  ) {
+    return null;
+  }
+
+  return {
+    id: options.id,
+    createdAt: options.createdAt,
+    senderId: options.senderId,
+    recipientId: options.recipientId,
+    score: options.score,
+    status: options.status,
+  };
+}
+
+function mapHomeThreadSummaryRow(row: HomeThreadSummaryRow): HomeThreadSummary {
+  return {
+    friendId: row.friend_id,
+    latestRound: mapHomeThreadRound({
+      createdAt: row.latest_round_created_at,
+      id: row.latest_round_id,
+      recipientId: row.latest_round_recipient_id,
+      score: row.latest_round_score,
+      senderId: row.latest_round_sender_id,
+      status: row.latest_round_status,
+    }),
+    activeRound: mapHomeThreadRound({
+      createdAt: row.active_round_created_at,
+      id: row.active_round_id,
+      recipientId: row.active_round_recipient_id,
+      score: row.active_round_score,
+      senderId: row.active_round_sender_id,
+      status: row.active_round_status,
+    }),
+    reviewRound: mapHomeThreadRound({
+      createdAt: row.review_round_created_at,
+      id: row.review_round_id,
+      recipientId: row.review_round_recipient_id,
+      score: row.review_round_score,
+      senderId: row.review_round_sender_id,
+      status: row.review_round_status,
+    }),
+    currentRoundCount: row.current_round_count ?? 0,
+    lastActiveAt: row.last_active_at,
+  };
+}
+
+function mapFallbackHomeThreads(
+  currentUserId: string,
+  rows: HomeRoundSummaryRow[],
+): HomeThreadSummary[] {
+  const threadMap = new Map<string, HomeThreadSummary>();
+
+  for (const row of rows) {
+    const friendId = row.sender_id === currentUserId ? row.recipient_id : row.sender_id;
+    const existingThread = threadMap.get(friendId);
+    const roundSummary: RoundSummary = {
+      id: row.id,
+      createdAt: row.created_at,
+      senderId: row.sender_id,
+      recipientId: row.recipient_id,
+      score: row.score,
+      status: row.status,
+    };
+
+    if (!existingThread) {
+      threadMap.set(friendId, {
+        friendId,
+        latestRound: roundSummary,
+        activeRound: row.status !== 'complete' ? roundSummary : null,
+        reviewRound:
+          row.status === 'complete' && row.sender_id === currentUserId ? roundSummary : null,
+        currentRoundCount: 1,
+        lastActiveAt: row.created_at,
+      });
+      continue;
+    }
+
+    existingThread.currentRoundCount += 1;
+
+    if (!existingThread.latestRound) {
+      existingThread.latestRound = roundSummary;
+    }
+
+    if (!existingThread.activeRound && row.status !== 'complete') {
+      existingThread.activeRound = roundSummary;
+    }
+
+    if (
+      !existingThread.reviewRound &&
+      row.status === 'complete' &&
+      row.sender_id === currentUserId
+    ) {
+      existingThread.reviewRound = roundSummary;
+    }
+  }
+
+  return [...threadMap.values()];
+}
+
+export async function listHomeThreads(): Promise<HomeThreadSummary[]> {
+  const client = requireSupabase();
+  let { data, error } = await client.rpc('list_home_threads');
+
+  if (error && /list_home_threads/i.test(error.message)) {
+    const {
+      data: authData,
+      error: authError,
+    } = await client.auth.getUser();
+
+    if (authError) {
+      throw new Error(`Unable to read the current user: ${authError.message}`);
+    }
+
+    const currentUserId = authData.user?.id ?? null;
+
+    if (!currentUserId) {
+      return [];
+    }
+
+    const fallbackResult = await client
+      .from('rounds')
+      .select(ROUND_HOME_COLUMNS)
+      .order('created_at', { ascending: false });
+
+    if (fallbackResult.error) {
+      throw new Error(`Unable to load thread summaries: ${fallbackResult.error.message}`);
+    }
+
+    return mapFallbackHomeThreads(
+      currentUserId,
+      ((fallbackResult.data as unknown as HomeRoundSummaryRow[] | null) ?? []),
+    );
+  }
+
+  if (error) {
+    throw new Error(`Unable to load thread summaries: ${error.message}`);
+  }
+
+  return ((data as HomeThreadSummaryRow[] | null) ?? []).map(mapHomeThreadSummaryRow);
+}
+
+export async function getRoundDetails(roundId: string): Promise<Round | null> {
+  const normalizedRoundId = roundId.trim();
+
+  if (!normalizedRoundId) {
+    return null;
+  }
+
   const client = requireSupabase();
   const { data, error } = await client
     .from('rounds')
     .select(ROUND_COLUMNS)
-    .order('created_at', { ascending: false });
+    .eq('id', normalizedRoundId)
+    .maybeSingle();
 
   if (error) {
-    throw new Error(`Unable to load rounds: ${error.message}`);
+    throw new Error(`Unable to load the round: ${error.message}`);
   }
 
-  return Promise.all(((data as unknown as RoundRow[] | null) ?? []).map(mapRoundRow));
+  if (!data) {
+    return null;
+  }
+
+  return mapRoundRow(data as unknown as RoundRow);
 }
 
 export async function createRoundRecord(

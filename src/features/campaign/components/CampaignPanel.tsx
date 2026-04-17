@@ -12,6 +12,7 @@ import {
   completeCampaignChallenge,
   consumeCampaignAttempt,
   formatCampaignCurrencyLabel,
+  getCampaignChallengeLmPrior,
   getCampaignCurrencyDefinition,
   listCampaignLeaderboard,
   loadActiveCampaignState,
@@ -654,15 +655,9 @@ export function CampaignPanel({ currentUserId }: CampaignPanelProps) {
     setError(null);
 
     try {
-      const lmPrior = {
-        modelName: activeChallenge.lmModelName,
-        ready: activeChallenge.lmReady,
-        tokenCount: activeChallenge.lmTokenCount,
-        tokenIds: activeChallenge.lmTokenIds,
-        tokenTexts: activeChallenge.lmTokenTexts,
-        tokenProbs: activeChallenge.lmTokenProbs,
-        tokenLogProbs: activeChallenge.lmTokenLogProbs,
-      };
+      const lmPrior = activeChallenge.lmReady
+        ? await getCampaignChallengeLmPrior(activeChallenge.id)
+        : null;
       const scoringConfig = readCampaignScoringConfig(campaignState?.campaign.config);
       const attemptScoreResult = await scoreCampaignAttempt({
         attemptBlob: attemptRecording,

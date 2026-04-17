@@ -1,9 +1,10 @@
 import { supabase, supabaseConfigError } from './supabase';
 import { clearWordPackUnlockCache } from './wordPacks';
+import type { CampaignPhraseLmPrior } from '../features/campaign/lmPrior';
 import type { WordDifficulty } from '../utils/difficulty';
 
 const MAX_CACHE_AGE_MS = 1000 * 60 * 10;
-const ACTIVE_CAMPAIGN_STATE_CACHE_VERSION = 'v2';
+const ACTIVE_CAMPAIGN_STATE_CACHE_VERSION = 'v3';
 const ACTIVE_CAMPAIGN_STATE_CACHE_PREFIX = `active_campaign_state_cache:${ACTIVE_CAMPAIGN_STATE_CACHE_VERSION}:`;
 const LEGACY_ACTIVE_CAMPAIGN_STATE_CACHE_PREFIX = 'active_campaign_state_cache:';
 const CAMPAIGN_RETRY_COST = 5;
@@ -40,6 +41,11 @@ export interface CampaignCatalogEntry {
   currency: CampaignCurrencyDefinition | null;
 }
 
+export interface ActiveCampaignHome {
+  bannerImage: string | null;
+  campaignId: string | null;
+}
+
 export interface CampaignChallenge {
   id: string;
   campaignId: string;
@@ -48,11 +54,6 @@ export interface CampaignChallenge {
   difficulty: CampaignChallengeDifficulty;
   mode: CampaignChallengeMode;
   createdAt: string;
-  lmModelName: string | null;
-  lmTokenIds: number[];
-  lmTokenTexts: string[];
-  lmTokenProbs: number[];
-  lmTokenLogProbs: number[];
   lmTokenCount: number;
   lmReady: boolean;
 }
@@ -149,13 +150,24 @@ interface CampaignChallengeRow {
   difficulty: CampaignChallengeDifficulty;
   mode: CampaignChallengeMode;
   created_at: string;
-  lm_model_name: string | null;
-  lm_token_ids: unknown;
-  lm_token_texts: unknown;
-  lm_token_probs: unknown;
-  lm_token_log_probs: unknown;
   lm_token_count: number | null;
   lm_ready: boolean | null;
+}
+
+interface ActiveCampaignHomeRow {
+  campaign_id: string | null;
+  banner_image: string | null;
+}
+
+interface CampaignChallengeLmPriorRow {
+  challenge_id?: string | null;
+  model_name?: string | null;
+  ready?: boolean | null;
+  token_count?: number | null;
+  token_ids?: unknown;
+  token_texts?: unknown;
+  token_probs?: unknown;
+  token_log_probs?: unknown;
 }
 
 interface CampaignAttemptRow {
@@ -523,13 +535,26 @@ function mapChallengeRow(row: CampaignChallengeRow): CampaignChallenge {
     difficulty: row.difficulty,
     mode: row.mode,
     createdAt: row.created_at,
-    lmModelName: readString(row.lm_model_name),
-    lmTokenIds: readNumberArray(row.lm_token_ids),
-    lmTokenTexts: readStringArray(row.lm_token_texts),
-    lmTokenProbs: readNumberArray(row.lm_token_probs),
-    lmTokenLogProbs: readNumberArray(row.lm_token_log_probs),
     lmTokenCount: readPositiveInteger(row.lm_token_count, 0),
     lmReady: readBoolean(row.lm_ready, false),
+  };
+}
+
+function mapCampaignChallengeLmPriorRow(
+  row: CampaignChallengeLmPriorRow | null | undefined,
+): CampaignPhraseLmPrior | null {
+  if (!row) {
+    return null;
+  }
+
+  return {
+    modelName: readString(row.model_name),
+    ready: readBoolean(row.ready, false),
+    tokenCount: readPositiveInteger(row.token_count, 0),
+    tokenIds: readNumberArray(row.token_ids),
+    tokenTexts: readStringArray(row.token_texts),
+    tokenProbs: readNumberArray(row.token_probs),
+    tokenLogProbs: readNumberArray(row.token_log_probs),
   };
 }
 
@@ -707,6 +732,139 @@ export async function loadActiveCampaignState(
 
   writeCachedPayload(cacheKey, state);
   return state;
+}
+
+export async function getActiveCampaignHome(): Promise<ActiveCampaignHome> {
+  const client = requireSupabase();
+  let { data, error } = await client.rpc('get_active_campaign_home');
+
+  if (error && isMissingRpcFunctionError(error.message, 'get_active_campaign_home')) {
+    const { data: campaignRow, error: campaignError } = await client
+      .from('campaigns')
+      .select('id')
+      .eq('is_active', true)
+      .order('start_date', { ascending: false, nullsFirst: false })
+      .order('id', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (campaignError) {
+      throw new Error(`Unable to load the campaign home data: ${campaignError.message}`);
+    }
+
+    if (!campaignRow?.id) {
+      return {
+        bannerImage: null,
+        campaignId: null,
+      };
+    }
+
+    const { data: assetRow, error: assetError } = await client
+      .from('campaign_assets')
+      .select('value')
+      .eq('campaign_id', campaignRow.id)
+      .eq('key', 'banner_image')
+      .limit(1)
+      .maybeSingle();
+
+    if (assetError) {
+      throw new Error(`Unable to load the campaign banner: ${assetError.message}`);
+    }
+
+    return {
+      bannerImage: readString((assetRow as { value?: string | null } | null)?.value),
+      campaignId: campaignRow.id,
+    };
+  }
+
+  if (error) {
+    throw new Error(
+      formatSupabaseRpcError(
+        'get_active_campaign_home',
+        'Unable to load the campaign home data.',
+        error,
+      ),
+    );
+  }
+
+  const row = (Array.isArray(data) ? data[0] : data) as ActiveCampaignHomeRow | null;
+
+  return {
+    bannerImage: readString(row?.banner_image),
+    campaignId: readString(row?.campaign_id),
+  };
+}
+
+export async function getCampaignChallengeLmPrior(
+  challengeId: string,
+): Promise<CampaignPhraseLmPrior | null> {
+  const normalizedChallengeId = challengeId.trim();
+
+  if (!normalizedChallengeId) {
+    return null;
+  }
+
+  const client = requireSupabase();
+  let { data, error } = await client.rpc('get_campaign_challenge_lm_prior', {
+    challenge_id: normalizedChallengeId,
+  });
+
+  if (error && isMissingRpcFunctionError(error.message, 'get_campaign_challenge_lm_prior')) {
+    const fallbackResult = await client
+      .from('campaign_challenges')
+      .select(
+        'id, lm_model_name, lm_ready, lm_token_count, lm_token_ids, lm_token_texts, lm_token_probs, lm_token_log_probs',
+      )
+      .eq('id', normalizedChallengeId)
+      .maybeSingle();
+
+    if (fallbackResult.error) {
+      throw new Error(
+        `Unable to load the campaign language-model prior: ${fallbackResult.error.message}`,
+      );
+    }
+
+    const row = fallbackResult.data as
+      | {
+          id: string;
+          lm_model_name: string | null;
+          lm_ready: boolean | null;
+          lm_token_count: number | null;
+          lm_token_ids: unknown;
+          lm_token_texts: unknown;
+          lm_token_probs: unknown;
+          lm_token_log_probs: unknown;
+        }
+      | null;
+
+    return mapCampaignChallengeLmPriorRow(
+      row
+        ? {
+            challenge_id: row.id,
+            model_name: row.lm_model_name,
+            ready: row.lm_ready,
+            token_count: row.lm_token_count,
+            token_ids: row.lm_token_ids,
+            token_texts: row.lm_token_texts,
+            token_probs: row.lm_token_probs,
+            token_log_probs: row.lm_token_log_probs,
+          }
+        : null,
+    );
+  }
+
+  if (error) {
+    throw new Error(
+      formatSupabaseRpcError(
+        'get_campaign_challenge_lm_prior',
+        'Unable to load the campaign language-model prior.',
+        error,
+      ),
+    );
+  }
+
+  const row = (Array.isArray(data) ? data[0] : data) as CampaignChallengeLmPriorRow | null;
+  return mapCampaignChallengeLmPriorRow(row);
 }
 
 export async function consumeCampaignAttempt(

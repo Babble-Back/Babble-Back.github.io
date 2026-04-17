@@ -72,3 +72,21 @@ export interface Round {
   score: number | null;
   status: RoundStatus;
 }
+
+export interface RoundSummary {
+  id: string;
+  createdAt: string;
+  senderId: string;
+  recipientId: string;
+  score: number | null;
+  status: RoundStatus;
+}
+
+export interface HomeThreadSummary {
+  friendId: string;
+  latestRound: RoundSummary | null;
+  activeRound: RoundSummary | null;
+  reviewRound: RoundSummary | null;
+  currentRoundCount: number;
+  lastActiveAt: string | null;
+}

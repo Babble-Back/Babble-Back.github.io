@@ -1,9 +1,13 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { signInWithIdentifier, signUpWithEmail } from '../../../lib/auth';
 import { supabaseConfigError } from '../../../lib/supabase';
 import homeLogo from '../../../assets/backtalk-logo.png';
 
-type AuthMode = 'login' | 'register';
+export type AuthMode = 'login' | 'register';
+
+interface AuthPanelProps {
+  initialMode?: AuthMode;
+}
 
 function normalizeUsernamePreview(value: string) {
   return value
@@ -13,8 +17,8 @@ function normalizeUsernamePreview(value: string) {
     .replace(/^_+|_+$/g, '');
 }
 
-export function AuthPanel() {
-  const [mode, setMode] = useState<AuthMode>('login');
+export function AuthPanel({ initialMode = 'login' }: AuthPanelProps) {
+  const [mode, setMode] = useState<AuthMode>(initialMode);
   const [identifier, setIdentifier] = useState('');
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
@@ -23,6 +27,10 @@ export function AuthPanel() {
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const [activeAction, setActiveAction] = useState<'signup' | 'login' | null>(null);
+
+  useEffect(() => {
+    setMode(initialMode);
+  }, [initialMode]);
 
   const handleSignUp = async () => {
     const normalizedUsername = normalizeUsernamePreview(username);

@@ -28,6 +28,7 @@ import { RoundRewardSequence } from './RoundRewardSequence';
 
 interface PlayRoundPanelProps {
   currentUserId: string;
+  isLoadingRound?: boolean;
   round: Round | null;
   onArchiveRound: (round: Round) => Promise<void>;
   onBack: () => void;
@@ -150,6 +151,7 @@ function RewardPlaybackButton({
 
 export function PlayRoundPanel({
   currentUserId,
+  isLoadingRound = false,
   round,
   onArchiveRound,
   onBack,
@@ -674,10 +676,25 @@ export function PlayRoundPanel({
           </button>
           <div className="round-screen-copy">
             <div className="eyebrow">Round</div>
-            <h2>No active round</h2>
-            <p>Pick a friend from home to open the current thread.</p>
+            <h2>{isLoadingRound ? 'Loading thread' : 'No active round'}</h2>
+            <p>
+              {isLoadingRound
+                ? 'Fetching the current round and secure audio links for this thread.'
+                : 'Pick a friend from home to open the current thread.'}
+            </p>
           </div>
         </div>
+        {isLoadingRound ? (
+          <div className="round-screen-body">
+            <div className="round-loader-callout" aria-live="polite" role="status">
+              <WaveformLoader className="round-loader-callout-spinner" size={92} strokeWidth={3.6} />
+              <div>
+                <strong>Loading round...</strong>
+                <p>Preparing the latest audio for playback.</p>
+              </div>
+            </div>
+          </div>
+        ) : null}
       </section>
     );
   }

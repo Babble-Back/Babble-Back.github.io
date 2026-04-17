@@ -2,13 +2,18 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import homeLogo from './assets/backtalk-logo.png';
 import { StarRating } from './components/StarRating';
 import { WaveformLoader } from './components/WaveformLoader';
-import { AuthPanel } from './features/auth/components/AuthPanel';
 import { CampaignPanel } from './features/campaign/components/CampaignPanel';
+import { PublicHomePage } from './features/public/components/PublicHomePage';
 import { InventoryPanel } from './features/resources/components/InventoryPanel';
 import { CreateRoundPanel } from './features/rounds/components/CreateRoundPanel';
 import { HomePanel, type HomeTableRow } from './features/rounds/components/HomePanel';
 import { PlayRoundPanel } from './features/rounds/components/PlayRoundPanel';
-import type { ArchiveCompletedRoundSummary, Round } from './features/rounds/types';
+import type {
+  ArchiveCompletedRoundSummary,
+  HomeThreadSummary as HomeThreadData,
+  Round,
+  RoundSummary,
+} from './features/rounds/types';
 import type { Friend, FriendRequest } from './features/social/types';
 import type { AppProfile } from './lib/auth';
 import {
@@ -23,8 +28,8 @@ import {
   debugPushError,
   syncPushNotifications,
 } from './lib/push';
-import { loadActiveCampaignState } from './lib/campaigns';
-import { archiveCompletedRound, listRounds } from './lib/rounds';
+import { getActiveCampaignHome } from './lib/campaigns';
+import { archiveCompletedRound, getRoundDetails, listHomeThreads } from './lib/rounds';
 import { supabaseConfigError } from './lib/supabase';
 import { InstallAppPrompt } from './pwa/InstallAppPrompt';
 import { CoinDisplay, ResourceProvider } from './features/resources/ResourceProvider';
@@ -80,15 +85,15 @@ function getNormalizedBasePath() {
 }
 
 interface ThreadSummary {
-  activeRound: Round | null;
+  activeRound: RoundSummary | null;
   averageStars: number | null;
   canCurrentUserStart: boolean;
   canRecipientComposeNext: boolean;
-  displayRound: Round | null;
+  displayRound: RoundSummary | null;
   friend: Friend;
   lastActiveAt: string | null;
-  latestRound: Round | null;
-  reviewRound: Round | null;
+  latestRound: RoundSummary | null;
+  reviewRound: RoundSummary | null;
   roundCount: number;
 }
 
@@ -176,17 +181,6 @@ function updateAppRoute(route: AppRoute, options?: { replace?: boolean }) {
   }
 
   window.history.pushState(window.history.state, '', destination);
-}
-
-function sortNewestFirst(left: Round, right: Round) {
-  return new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime();
-}
-
-function isRoundForFriend(round: Round, currentUserId: string, friendId: string) {
-  return (
-    (round.senderId === currentUserId && round.recipientId === friendId) ||
-    (round.senderId === friendId && round.recipientId === currentUserId)
-  );
 }
 
 function getSelectedFriendIdFromRound(round: Round | null, currentUserId: string | null) {
@@ -382,10 +376,12 @@ function App() {
   const [profile, setProfile] = useState<AppProfile | null>(null);
   const [friends, setFriends] = useState<Friend[]>([]);
   const [requests, setRequests] = useState<FriendRequest[]>([]);
-  const [rounds, setRounds] = useState<Round[]>([]);
+  const [homeThreads, setHomeThreads] = useState<HomeThreadData[]>([]);
+  const [selectedRound, setSelectedRound] = useState<Round | null>(null);
   const [selectedFriendId, setSelectedFriendId] = useState<string | null>(() => getAppRoute().friendId);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
   const [isLoadingData, setIsLoadingData] = useState(false);
+  const [isLoadingSelectedRound, setIsLoadingSelectedRound] = useState(false);
   const [hasLoadedInitialData, setHasLoadedInitialData] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [pushError, setPushError] = useState<string | null>(null);
@@ -555,7 +551,8 @@ function App() {
         setProfile(null);
         setFriends([]);
         setRequests([]);
-        setRounds([]);
+        setHomeThreads([]);
+        setSelectedRound(null);
         setSelectedFriendId(null);
         setIsComposingNextRound(false);
         return;
@@ -573,17 +570,17 @@ function App() {
       setLoadError(null);
 
       try {
-        const [nextProfile, nextFriends, nextRequests, nextRounds] = await Promise.all([
+        const [nextProfile, nextFriends, nextRequests, nextHomeThreads] = await Promise.all([
           getMyProfile(),
           listFriends(currentUserId),
           listFriendRequests(currentUserId),
-          listRounds(),
+          listHomeThreads(),
         ]);
 
         setProfile(nextProfile);
         setFriends(nextFriends);
         setRequests(nextRequests);
-        setRounds(nextRounds);
+        setHomeThreads(nextHomeThreads);
       } catch (error) {
         setLoadError(
           error instanceof Error ? error.message : 'Unable to load data from Supabase.',
@@ -611,7 +608,9 @@ function App() {
       setProfile(null);
       setFriends([]);
       setRequests([]);
-      setRounds([]);
+      setHomeThreads([]);
+      setSelectedRound(null);
+      setIsLoadingSelectedRound(false);
       setIsMenuOpen(false);
       setIsComposingNextRound(false);
       setCampaignBannerImage(null);
@@ -640,13 +639,13 @@ function App() {
 
     const loadCampaignBanner = async () => {
       try {
-        const campaignState = await loadActiveCampaignState(currentUserId);
+        const campaignHome = await getActiveCampaignHome();
 
         if (cancelled) {
           return;
         }
 
-        const bannerImage = campaignState.assets.banner_image ?? null;
+        const bannerImage = campaignHome.bannerImage;
         setCampaignBannerImage(bannerImage);
 
         if (bannerImage) {
@@ -695,19 +694,16 @@ function App() {
       return [] as ThreadSummary[];
     }
 
+    const homeThreadsByFriendId = new Map(
+      homeThreads.map((threadSummary) => [threadSummary.friendId, threadSummary]),
+    );
+
     return friends
       .map<ThreadSummary>((friend) => {
-        const pairRounds = rounds
-          .filter((round) => isRoundForFriend(round, currentUserId, friend.id))
-          .sort(sortNewestFirst);
-        const latestRound = pairRounds[0] ?? null;
-        const activeRound = pairRounds.find((round) => round.status !== 'complete') ?? null;
-        const reviewRound =
-          pairRounds.find(
-            (round) =>
-              round.status === 'complete' &&
-              round.senderId === currentUserId,
-          ) ?? null;
+        const threadData = homeThreadsByFriendId.get(friend.id);
+        const latestRound = threadData?.latestRound ?? null;
+        const activeRound = threadData?.activeRound ?? null;
+        const reviewRound = threadData?.reviewRound ?? null;
         const canRecipientComposeNext =
           !activeRound &&
           !reviewRound &&
@@ -730,10 +726,10 @@ function App() {
           canRecipientComposeNext,
           displayRound,
           friend,
-          lastActiveAt: latestRound?.createdAt ?? friend.lastCompletedAt ?? friend.createdAt,
+          lastActiveAt: threadData?.lastActiveAt ?? friend.lastCompletedAt ?? friend.createdAt,
           latestRound,
           reviewRound,
-          roundCount: friend.completedRoundCount + pairRounds.length,
+          roundCount: friend.completedRoundCount + (threadData?.currentRoundCount ?? 0),
         };
       })
       .sort((left, right) => {
@@ -741,12 +737,89 @@ function App() {
         const rightDate = new Date(right.lastActiveAt ?? right.friend.createdAt).getTime();
         return rightDate - leftDate || left.friend.username.localeCompare(right.friend.username);
       });
-  }, [currentUserId, friends, rounds]);
+  }, [currentUserId, friends, homeThreads]);
 
   const selectedThread = useMemo(
     () => threadSummaries.find((thread) => thread.friend.id === selectedFriendId) ?? null,
     [selectedFriendId, threadSummaries],
   );
+
+  const selectedRoundForSelectedThread = useMemo(() => {
+    if (!selectedThread || !currentUserId || !selectedRound) {
+      return null;
+    }
+
+    if (getSelectedFriendIdFromRound(selectedRound, currentUserId) !== selectedThread.friend.id) {
+      return null;
+    }
+
+    if (selectedThread.displayRound && selectedRound.id !== selectedThread.displayRound.id) {
+      return null;
+    }
+
+    return selectedRound;
+  }, [currentUserId, selectedRound, selectedThread]);
+
+  useEffect(() => {
+    if (appPath !== '/' || view !== 'thread' || !selectedFriendId) {
+      setSelectedRound(null);
+      setIsLoadingSelectedRound(false);
+      return;
+    }
+
+    const displayRoundId = selectedThread?.displayRound?.id ?? null;
+
+    if (!displayRoundId) {
+      if (!selectedRoundForSelectedThread) {
+        setSelectedRound(null);
+      }
+      setIsLoadingSelectedRound(false);
+      return;
+    }
+
+    if (selectedRoundForSelectedThread?.id === displayRoundId) {
+      setIsLoadingSelectedRound(false);
+      return;
+    }
+
+    let cancelled = false;
+    setIsLoadingSelectedRound(true);
+
+    const loadSelectedRound = async () => {
+      try {
+        const nextRound = await getRoundDetails(displayRoundId);
+
+        if (cancelled) {
+          return;
+        }
+
+        setSelectedRound(nextRound);
+      } catch (error) {
+        if (!cancelled) {
+          setLoadError(
+            error instanceof Error ? error.message : 'Unable to load the selected thread.',
+          );
+          setSelectedRound(null);
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoadingSelectedRound(false);
+        }
+      }
+    };
+
+    void loadSelectedRound();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    appPath,
+    selectedFriendId,
+    selectedRoundForSelectedThread,
+    selectedThread?.displayRound?.id,
+    view,
+  ]);
 
   const handleSelectFriend = (friendId: string) => {
     navigateToRoute(createThreadRoute(friendId));
@@ -759,8 +832,9 @@ function App() {
 
   const handleCreateRound = (round: Round) => {
     const friendId = getSelectedFriendIdFromRound(round, currentUserId);
-    setRounds((currentRounds) => [round, ...currentRounds]);
+    setSelectedRound(round);
     navigateToRoute(friendId ? createThreadRoute(friendId) : createHomeRoute());
+    void refreshAppData({ silent: true, skipIfInFlight: true });
   };
 
   const handleOpenHome = () => {
@@ -780,7 +854,7 @@ function App() {
   }, [refreshAppData]);
 
   const handleBackFromCreateRound = () => {
-    if (selectedThread?.displayRound) {
+    if (selectedThread?.displayRound || selectedRoundForSelectedThread) {
       setIsComposingNextRound(false);
       return;
     }
@@ -789,9 +863,10 @@ function App() {
   };
 
   const handleUpdateRound = (roundId: string, updater: (round: Round) => Round) => {
-    setRounds((currentRounds) =>
-      currentRounds.map((round) => (round.id === roundId ? updater(round) : round)),
+    setSelectedRound((currentRound) =>
+      currentRound && currentRound.id === roundId ? updater(currentRound) : currentRound,
     );
+    void refreshAppData({ silent: true, skipIfInFlight: true });
   };
 
   const handleArchiveRound = async (round: Round) => {
@@ -804,9 +879,7 @@ function App() {
       roundId: round.id,
     });
 
-    setRounds((currentRounds) =>
-      currentRounds.filter((currentRound) => currentRound.id !== round.id),
-    );
+    setSelectedRound((currentRound) => (currentRound?.id === round.id ? null : currentRound));
     setFriends((currentFriends) =>
       currentFriends.map((friend) =>
         friend.id === archivedSummary.friendId
@@ -815,6 +888,7 @@ function App() {
       ),
     );
     setIsComposingNextRound(false);
+    void refreshAppData({ silent: true, skipIfInFlight: true });
   };
 
   const handleSignOut = async () => {
@@ -902,7 +976,7 @@ function App() {
         {isAuthLoading ? (
           <FullscreenLoadingScreen />
         ) : !currentUserId ? (
-          <AuthPanel />
+          <PublicHomePage />
         ) : showFullscreenLoader ? (
           <FullscreenLoadingScreen />
         ) : (
@@ -991,21 +1065,30 @@ function App() {
                   onRefresh={handleHomeRefresh}
                 />
               ) : null}
-              {appPath === '/' && view === 'thread' && profile && selectedThread?.displayRound && !isComposingNextRound ? (
+              {appPath === '/' &&
+              view === 'thread' &&
+              profile &&
+              selectedThread &&
+              !isComposingNextRound &&
+              (selectedRoundForSelectedThread || selectedThread.displayRound || isLoadingSelectedRound) ? (
                 <PlayRoundPanel
                   currentUserId={currentUserId}
+                  isLoadingRound={isLoadingSelectedRound && !selectedRoundForSelectedThread}
                   onArchiveRound={handleArchiveRound}
                   onBack={handleOpenHome}
                   onComposeNextRound={() => setIsComposingNextRound(true)}
                   onUpdateRound={handleUpdateRound}
-                  round={selectedThread.displayRound}
+                  round={selectedRoundForSelectedThread}
                 />
               ) : null}
               {appPath === '/' &&
               view === 'thread' &&
               profile &&
               selectedThread &&
-              (isComposingNextRound || (!selectedThread.displayRound && selectedThread.canCurrentUserStart)) ? (
+              (isComposingNextRound ||
+                (!selectedThread.displayRound &&
+                  !selectedRoundForSelectedThread &&
+                  selectedThread.canCurrentUserStart)) ? (
                 <CreateRoundPanel
                   currentUserId={profile.id}
                   currentUserUsername={profile.username}
@@ -1018,6 +1101,8 @@ function App() {
               view === 'thread' &&
               selectedThread &&
               !selectedThread.displayRound &&
+              !selectedRoundForSelectedThread &&
+              !isLoadingSelectedRound &&
               !isComposingNextRound &&
               !selectedThread.canCurrentUserStart ? (
                 <WaitingThreadPanel
