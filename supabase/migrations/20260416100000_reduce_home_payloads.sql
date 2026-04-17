@@ -27,7 +27,7 @@ security definer
 stable
 set search_path = public
 as $$
-  with current_user as (
+  with auth_context as (
     select auth.uid() as user_id
   ),
   my_rounds as (
@@ -43,7 +43,7 @@ as $$
       r.score,
       r.status
     from public.rounds as r
-    cross join current_user as cu
+    cross join auth_context as cu
     where cu.user_id is not null
       and (r.sender_id = cu.user_id or r.recipient_id = cu.user_id)
   ),
@@ -86,7 +86,7 @@ as $$
       my_rounds.score,
       my_rounds.status
     from my_rounds
-    cross join current_user as cu
+    cross join auth_context as cu
     where my_rounds.status = 'complete'
       and my_rounds.sender_id = cu.user_id
     order by my_rounds.friend_id, my_rounds.created_at desc, my_rounds.id desc

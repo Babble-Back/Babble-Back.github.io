@@ -44,6 +44,9 @@ export interface CampaignCatalogEntry {
 export interface ActiveCampaignHome {
   bannerImage: string | null;
   campaignId: string | null;
+  challengeIcon: string | null;
+  subtitle: string | null;
+  title: string | null;
 }
 
 export interface CampaignChallenge {
@@ -157,6 +160,13 @@ interface CampaignChallengeRow {
 interface ActiveCampaignHomeRow {
   campaign_id: string | null;
   banner_image: string | null;
+}
+
+interface CampaignHomeAssetValueMap {
+  bannerImage: string | null;
+  challengeIcon: string | null;
+  subtitle: string | null;
+  title: string | null;
 }
 
 interface CampaignChallengeLmPriorRow {
@@ -736,6 +746,35 @@ export async function loadActiveCampaignState(
 
 export async function getActiveCampaignHome(): Promise<ActiveCampaignHome> {
   const client = requireSupabase();
+
+  const loadCampaignHomeAssets = async (
+    campaignId: string,
+  ): Promise<CampaignHomeAssetValueMap> => {
+    const { data: assetRows, error: assetError } = await client
+      .from('campaign_assets')
+      .select('key, value')
+      .eq('campaign_id', campaignId)
+      .in('key', ['banner_image', 'challenge_icon', 'subtitle', 'title']);
+
+    if (assetError) {
+      throw new Error(`Unable to load the campaign home assets: ${assetError.message}`);
+    }
+
+    const assetsByKey = ((assetRows as CampaignAssetRow[] | null) ?? []).reduce<
+      Record<string, string>
+    >((entries, asset) => {
+      entries[asset.key] = asset.value;
+      return entries;
+    }, {});
+
+    return {
+      bannerImage: readString(assetsByKey.banner_image),
+      challengeIcon: readString(assetsByKey.challenge_icon),
+      subtitle: readString(assetsByKey.subtitle),
+      title: readString(assetsByKey.title),
+    };
+  };
+
   let { data, error } = await client.rpc('get_active_campaign_home');
 
   if (error && isMissingRpcFunctionError(error.message, 'get_active_campaign_home')) {
@@ -756,24 +795,19 @@ export async function getActiveCampaignHome(): Promise<ActiveCampaignHome> {
       return {
         bannerImage: null,
         campaignId: null,
+        challengeIcon: null,
+        subtitle: null,
+        title: null,
       };
     }
-
-    const { data: assetRow, error: assetError } = await client
-      .from('campaign_assets')
-      .select('value')
-      .eq('campaign_id', campaignRow.id)
-      .eq('key', 'banner_image')
-      .limit(1)
-      .maybeSingle();
-
-    if (assetError) {
-      throw new Error(`Unable to load the campaign banner: ${assetError.message}`);
-    }
+    const assets = await loadCampaignHomeAssets(campaignRow.id);
 
     return {
-      bannerImage: readString((assetRow as { value?: string | null } | null)?.value),
+      bannerImage: assets.bannerImage,
       campaignId: campaignRow.id,
+      challengeIcon: assets.challengeIcon,
+      subtitle: assets.subtitle,
+      title: assets.title,
     };
   }
 
@@ -788,10 +822,22 @@ export async function getActiveCampaignHome(): Promise<ActiveCampaignHome> {
   }
 
   const row = (Array.isArray(data) ? data[0] : data) as ActiveCampaignHomeRow | null;
+  const campaignId = readString(row?.campaign_id);
+  const assets = campaignId
+    ? await loadCampaignHomeAssets(campaignId)
+    : {
+        bannerImage: null,
+        challengeIcon: null,
+        subtitle: null,
+        title: null,
+      };
 
   return {
-    bannerImage: readString(row?.banner_image),
-    campaignId: readString(row?.campaign_id),
+    bannerImage: assets.bannerImage ?? readString(row?.banner_image),
+    campaignId,
+    challengeIcon: assets.challengeIcon,
+    subtitle: assets.subtitle,
+    title: assets.title,
   };
 }
 
