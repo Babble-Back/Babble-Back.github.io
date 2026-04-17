@@ -23,16 +23,20 @@ type PublicHomeMode = 'auth' | 'home';
 
 const HOME_STEPS = [
   {
-    description: 'Send a friend a reversed word challenge.',
-    title: 'Challenge',
+    description: 'Your friend records a normal word.',
+    title: 'Friend Records',
   },
   {
-    description: 'They listen, copy what they hear, and send it back.',
+    description: 'You hear it reversed.',
+    title: 'Hear It Reversed',
+  },
+  {
+    description: 'Babble it back.',
     title: 'Babble It Back',
   },
   {
-    description: 'See the score and compare how close they got.',
-    title: 'See the Score',
+    description: 'You guess what your friend originally said.',
+    title: 'Make Your Guess',
   },
 ] as const;
 
