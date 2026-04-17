@@ -1,7 +1,8 @@
-import type { ActiveCampaignHome, CampaignState } from '../../lib/campaigns';
+import type { ActiveCampaignHome, CampaignState, PublicCampaignDemoBase } from '../../lib/campaigns';
 
 const PUBLIC_CAMPAIGN_DEMO_CACHE_KEY = 'public_campaign_demo_progress_v1';
 const PUBLIC_CAMPAIGN_DEMO_USER_ID = 'public-demo';
+const PUBLIC_CAMPAIGN_DEMO_ICON_FALLBACK = `${import.meta.env.BASE_URL}newIcon.png`;
 const PUBLIC_CAMPAIGN_DEMO_LEVELS = [
   { difficulty: 'easy', mode: 'normal', phrase: 'egg' },
   { difficulty: 'easy', mode: 'normal', phrase: 'nests' },
@@ -23,7 +24,7 @@ function clampProgressValue(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, Math.floor(value)));
 }
 
-function loadStoredProgress() {
+function loadStoredProgress(maxChallengeCount: number) {
   if (typeof window === 'undefined') {
     return {
       completedCount: 0,
@@ -42,16 +43,16 @@ function loadStoredProgress() {
     }
 
     const parsed = JSON.parse(raw) as Partial<PublicCampaignDemoProgress> | null;
-    const completedCount = clampProgressValue(parsed?.completedCount ?? 0, 0, PUBLIC_CAMPAIGN_DEMO_LEVELS.length);
+    const completedCount = clampProgressValue(parsed?.completedCount ?? 0, 0, maxChallengeCount);
     const currentIndex = clampProgressValue(
       parsed?.currentIndex ?? completedCount + 1,
       1,
-      PUBLIC_CAMPAIGN_DEMO_LEVELS.length + 1,
+      maxChallengeCount + 1,
     );
 
     return {
       completedCount: Math.min(completedCount, currentIndex - 1),
-      currentIndex: Math.max(currentIndex, Math.min(PUBLIC_CAMPAIGN_DEMO_LEVELS.length + 1, completedCount + 1)),
+      currentIndex: Math.max(currentIndex, Math.min(maxChallengeCount + 1, completedCount + 1)),
     } satisfies PublicCampaignDemoProgress;
   } catch {
     return {
@@ -61,8 +62,18 @@ function loadStoredProgress() {
   }
 }
 
-export function createPublicCampaignDemoState(preview: ActiveCampaignHome | null): CampaignState {
-  const progress = loadStoredProgress();
+function withChallengeIconFallback(assets: Record<string, string>) {
+  if (typeof assets.challenge_icon === 'string' && assets.challenge_icon.trim()) {
+    return assets;
+  }
+
+  return {
+    ...assets,
+    challenge_icon: PUBLIC_CAMPAIGN_DEMO_ICON_FALLBACK,
+  };
+}
+
+function buildFallbackDemoBase(preview: ActiveCampaignHome | null): PublicCampaignDemoBase {
   const campaignId = preview?.campaignId ?? 'public-demo-campaign';
   const title = preview?.title ?? 'Current Campaign';
 
@@ -88,15 +99,30 @@ export function createPublicCampaignDemoState(preview: ActiveCampaignHome | null
       lmTokenCount: 0,
       lmReady: false,
     })),
-    assets: {
+    assets: withChallengeIconFallback({
       banner_image: preview?.bannerImage ?? '',
       challenge_icon: preview?.challengeIcon ?? '',
       subtitle: preview?.subtitle ?? '',
       title,
-    },
+    }),
+  };
+}
+
+function buildDemoState(base: PublicCampaignDemoBase): CampaignState {
+  const nextBase = {
+    ...base,
+    assets: withChallengeIconFallback(base.assets),
+  };
+  const maxChallengeCount = Math.max(1, nextBase.challenges.length);
+  const progress = loadStoredProgress(maxChallengeCount);
+
+  return {
+    campaign: nextBase.campaign,
+    challenges: nextBase.challenges,
+    assets: nextBase.assets,
     progress: {
       userId: PUBLIC_CAMPAIGN_DEMO_USER_ID,
-      campaignId,
+      campaignId: nextBase.campaign.id,
       currentIndex: progress.currentIndex,
       completedCount: progress.completedCount,
     },
@@ -106,28 +132,26 @@ export function createPublicCampaignDemoState(preview: ActiveCampaignHome | null
   };
 }
 
+export function createPublicCampaignDemoState(preview: ActiveCampaignHome | null): CampaignState {
+  return buildDemoState(buildFallbackDemoBase(preview));
+}
+
+export function createPublicCampaignDemoStateFromBase(base: PublicCampaignDemoBase): CampaignState {
+  return buildDemoState(base);
+}
+
 export function persistPublicCampaignDemoState(state: CampaignState) {
   if (typeof window === 'undefined') {
     return;
   }
 
+  const maxChallengeCount = Math.max(1, state.challenges.length);
   const nextProgress: PublicCampaignDemoProgress = {
-    completedCount: clampProgressValue(
-      state.progress.completedCount,
-      0,
-      PUBLIC_CAMPAIGN_DEMO_LEVELS.length,
-    ),
-    currentIndex: clampProgressValue(
-      state.progress.currentIndex,
-      1,
-      PUBLIC_CAMPAIGN_DEMO_LEVELS.length + 1,
-    ),
+    completedCount: clampProgressValue(state.progress.completedCount, 0, maxChallengeCount),
+    currentIndex: clampProgressValue(state.progress.currentIndex, 1, maxChallengeCount + 1),
   };
 
-  window.localStorage.setItem(
-    PUBLIC_CAMPAIGN_DEMO_CACHE_KEY,
-    JSON.stringify(nextProgress),
-  );
+  window.localStorage.setItem(PUBLIC_CAMPAIGN_DEMO_CACHE_KEY, JSON.stringify(nextProgress));
 }
 
 export function resetPublicCampaignDemoState(preview: ActiveCampaignHome | null) {
@@ -136,4 +160,12 @@ export function resetPublicCampaignDemoState(preview: ActiveCampaignHome | null)
   }
 
   return createPublicCampaignDemoState(preview);
+}
+
+export function resetPublicCampaignDemoStateFromBase(base: PublicCampaignDemoBase) {
+  if (typeof window !== 'undefined') {
+    window.localStorage.removeItem(PUBLIC_CAMPAIGN_DEMO_CACHE_KEY);
+  }
+
+  return createPublicCampaignDemoStateFromBase(base);
 }

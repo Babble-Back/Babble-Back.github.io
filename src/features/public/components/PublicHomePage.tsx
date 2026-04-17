@@ -2,11 +2,19 @@ import { useEffect, useState } from 'react';
 import homeLogo from '../../../assets/backtalk-logo.png';
 import { AuthPanel } from '../../auth/components/AuthPanel';
 import { CampaignPanel } from '../../campaign/components/CampaignPanel';
-import { type CampaignState, getActiveCampaignHome, type ActiveCampaignHome } from '../../../lib/campaigns';
+import {
+  type CampaignState,
+  getActiveCampaignHome,
+  loadPublicCampaignDemoBase,
+  type ActiveCampaignHome,
+  type PublicCampaignDemoBase,
+} from '../../../lib/campaigns';
 import {
   createPublicCampaignDemoState,
+  createPublicCampaignDemoStateFromBase,
   persistPublicCampaignDemoState,
   resetPublicCampaignDemoState,
+  resetPublicCampaignDemoStateFromBase,
 } from '../campaignDemo';
 import { supabaseConfigError } from '../../../lib/supabase';
 
@@ -28,6 +36,7 @@ export function PublicHomePage({
   onOpenHome,
 }: PublicHomePageProps) {
   const [campaignHome, setCampaignHome] = useState<ActiveCampaignHome | null>(null);
+  const [demoBase, setDemoBase] = useState<PublicCampaignDemoBase | null>(null);
   const [demoCampaignState, setDemoCampaignState] = useState<CampaignState | null>(null);
   const [isDemoOpen, setIsDemoOpen] = useState(false);
 
@@ -45,6 +54,7 @@ export function PublicHomePage({
         };
 
         if (!cancelled) {
+          setDemoBase(null);
           setCampaignHome(fallbackHome);
           setDemoCampaignState(createPublicCampaignDemoState(fallbackHome));
         }
@@ -53,9 +63,30 @@ export function PublicHomePage({
       }
 
       try {
+        const nextDemoBase = await loadPublicCampaignDemoBase();
+
+        if (nextDemoBase?.challenges.length) {
+          const nextCampaignHome: ActiveCampaignHome = {
+            bannerImage: nextDemoBase.assets.banner_image ?? null,
+            campaignId: nextDemoBase.campaign.id ?? null,
+            challengeIcon: nextDemoBase.assets.challenge_icon ?? null,
+            subtitle: nextDemoBase.assets.subtitle ?? null,
+            title: nextDemoBase.assets.title ?? nextDemoBase.campaign.name ?? 'Current Campaign',
+          };
+
+          if (!cancelled) {
+            setDemoBase(nextDemoBase);
+            setCampaignHome(nextCampaignHome);
+            setDemoCampaignState(createPublicCampaignDemoStateFromBase(nextDemoBase));
+          }
+
+          return;
+        }
+
         const nextCampaignHome = await getActiveCampaignHome();
 
         if (!cancelled) {
+          setDemoBase(null);
           setCampaignHome(nextCampaignHome);
           setDemoCampaignState(createPublicCampaignDemoState(nextCampaignHome));
         }
@@ -69,6 +100,7 @@ export function PublicHomePage({
         };
 
         if (!cancelled) {
+          setDemoBase(null);
           setCampaignHome(fallbackHome);
           setDemoCampaignState(createPublicCampaignDemoState(fallbackHome));
         }
@@ -94,7 +126,9 @@ export function PublicHomePage({
   };
 
   const handleResetDemo = () => {
-    const nextState = resetPublicCampaignDemoState(campaignHome);
+    const nextState = demoBase
+      ? resetPublicCampaignDemoStateFromBase(demoBase)
+      : resetPublicCampaignDemoState(campaignHome);
     setDemoCampaignState(nextState);
   };
 

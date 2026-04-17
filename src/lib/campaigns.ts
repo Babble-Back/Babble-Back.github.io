@@ -99,6 +99,8 @@ export interface CampaignState {
   unlockedPackIds: string[];
 }
 
+export type PublicCampaignDemoBase = Pick<CampaignState, 'campaign' | 'challenges' | 'assets'>;
+
 export interface CampaignCompletionResult {
   campaignId: string;
   challengeId: string;
@@ -225,6 +227,12 @@ interface ActiveCampaignStateRow {
   progress: CampaignProgressRow | null;
   attempts: CampaignAttemptRow[];
   unlocked_pack_ids: string[];
+}
+
+interface PublicCampaignDemoStateRow {
+  campaign: CampaignRow | null;
+  challenges: CampaignChallengeRow[];
+  assets: Array<{ key: string; value: string }>;
 }
 
 interface CampaignCompletionRow {
@@ -828,6 +836,40 @@ export async function getActiveCampaignHome(): Promise<ActiveCampaignHome> {
     challengeIcon: readString(row?.challenge_icon),
     subtitle: readString(row?.subtitle),
     title: readString(row?.title),
+  };
+}
+
+export async function loadPublicCampaignDemoBase(): Promise<PublicCampaignDemoBase | null> {
+  const client = requireSupabase();
+  const { data, error } = await client.rpc('get_public_campaign_demo_state');
+
+  if (error) {
+    if (isMissingRpcFunctionError(error.message, 'get_public_campaign_demo_state')) {
+      return null;
+    }
+
+    throw new Error(
+      formatSupabaseRpcError(
+        'get_public_campaign_demo_state',
+        'Unable to load the public campaign demo.',
+        error,
+      ),
+    );
+  }
+
+  const row = (Array.isArray(data) ? data[0] : data) as PublicCampaignDemoStateRow | null;
+
+  if (!row?.campaign) {
+    return null;
+  }
+
+  return {
+    campaign: mapCampaignRow(row.campaign),
+    challenges: row.challenges.map(mapChallengeRow),
+    assets: row.assets.reduce<Record<string, string>>((entries, asset) => {
+      entries[asset.key] = asset.value;
+      return entries;
+    }, {}),
   };
 }
 

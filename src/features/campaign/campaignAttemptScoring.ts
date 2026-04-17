@@ -81,6 +81,7 @@ export interface CampaignAttemptScoreDebug {
 
 export interface CampaignAttemptScoreResult {
   debug: CampaignAttemptScoreDebug | null;
+  rawPredictionText: string | null;
   reversedAttemptBlob: Blob | null;
   score: number;
   stars: number;
@@ -128,8 +129,9 @@ function zeroScoreResult(
           totalDecodeSteps: 0,
           usedLmPriors: false,
           warnings: [],
-        }
+    }
       : null,
+    rawPredictionText: null,
     reversedAttemptBlob,
     score: 0,
     stars: 0,
@@ -143,6 +145,7 @@ export async function warmCampaignAttemptScorer() {
 export async function scoreCampaignAttempt({
   attemptBlob,
   debugLabel,
+  includeRawPrediction = false,
   lmPrior,
   reverseBeforeScoring = true,
   scoringConfig,
@@ -150,6 +153,7 @@ export async function scoreCampaignAttempt({
 }: {
   attemptBlob: Blob;
   debugLabel?: string;
+  includeRawPrediction?: boolean;
   lmPrior?: CampaignPhraseLmPrior | null;
   reverseBeforeScoring?: boolean;
   scoringConfig?: Partial<CampaignScoringConfig> | null;
@@ -161,12 +165,13 @@ export async function scoreCampaignAttempt({
   try {
     const scoredText = toCampaignPhraseScoringText(targetPhrase);
     const shouldLogDebug = shouldLogCampaignWhisperScores();
+    const shouldIncludeRawPrediction = shouldLogDebug || includeRawPrediction;
     reversedAttemptBlob = reverseBeforeScoring
       ? await reverseAudioBlob(attemptBlob)
       : attemptBlob;
     const processedAttemptAudio = await preprocessAudioBlob(reversedAttemptBlob);
     const whisperScore = await scoreWhisperPhraseAudio(processedAttemptAudio, targetPhrase, {
-      includeRawPrediction: shouldLogDebug,
+      includeRawPrediction: shouldIncludeRawPrediction,
     });
     const combinedScore = combineCampaignLmScore(whisperScore, lmPrior, scoredText, scoringConfig);
     const normalizedCampaignScore = normalizeCampaignLogScore(combinedScore.averageLogProb);
@@ -254,6 +259,7 @@ export async function scoreCampaignAttempt({
 
     return {
       debug,
+      rawPredictionText: whisperScore.rawPredictionText,
       reversedAttemptBlob,
       score: normalizedCampaignScore,
       stars,

@@ -190,6 +190,112 @@ function formatCampaignTitle(state: CampaignState | null) {
   return campaignMatch?.[1]?.trim() || trimmedTitle || 'Monthly Campaign';
 }
 
+function normalizeDemoTranscriptText(value: string | null | undefined) {
+  if (!value) {
+    return '';
+  }
+
+  return value
+    .trim()
+    .toLowerCase()
+    .normalize('NFKC')
+    .replace(/[^a-z0-9'\s]+/g, ' ')
+    .replace(/\s+/g, ' ');
+}
+
+function calculateLevenshteinDistance(left: string, right: string) {
+  if (!left) {
+    return right.length;
+  }
+
+  if (!right) {
+    return left.length;
+  }
+
+  const costs = Array.from({ length: right.length + 1 }, (_, index) => index);
+
+  for (let leftIndex = 1; leftIndex <= left.length; leftIndex += 1) {
+    let diagonal = costs[0] ?? 0;
+    costs[0] = leftIndex;
+
+    for (let rightIndex = 1; rightIndex <= right.length; rightIndex += 1) {
+      const upper = costs[rightIndex] ?? rightIndex;
+      const next =
+        left[leftIndex - 1] === right[rightIndex - 1]
+          ? diagonal
+          : Math.min(
+              diagonal + 1,
+              upper + 1,
+              (costs[rightIndex - 1] ?? rightIndex - 1) + 1,
+            );
+
+      diagonal = upper;
+      costs[rightIndex] = next;
+    }
+  }
+
+  return costs[right.length] ?? Math.max(left.length, right.length);
+}
+
+function scoreDemoTranscriptMatch(targetPhrase: string, transcript: string | null) {
+  const normalizedTarget = normalizeDemoTranscriptText(targetPhrase);
+  const normalizedTranscript = normalizeDemoTranscriptText(transcript);
+
+  if (!normalizedTarget || !normalizedTranscript) {
+    return {
+      score: 0,
+      stars: 0,
+    };
+  }
+
+  if (normalizedTranscript === normalizedTarget) {
+    return {
+      score: 1,
+      stars: 3,
+    };
+  }
+
+  if (
+    normalizedTranscript.includes(normalizedTarget) ||
+    normalizedTarget.includes(normalizedTranscript)
+  ) {
+    return {
+      score: 0.8,
+      stars: 2,
+    };
+  }
+
+  const editDistance = calculateLevenshteinDistance(normalizedTarget, normalizedTranscript);
+  const similarity =
+    1 - editDistance / Math.max(normalizedTarget.length, normalizedTranscript.length, 1);
+
+  if (similarity >= 0.82) {
+    return {
+      score: similarity,
+      stars: 3,
+    };
+  }
+
+  if (similarity >= 0.66) {
+    return {
+      score: similarity,
+      stars: 2,
+    };
+  }
+
+  if (similarity >= 0.45) {
+    return {
+      score: similarity,
+      stars: 1,
+    };
+  }
+
+  return {
+    score: Math.max(0, similarity),
+    stars: 0,
+  };
+}
+
 function advanceDemoCampaignState(
   state: CampaignState,
   challengeId: string,
@@ -759,13 +865,27 @@ export function CampaignPanel({
       const attemptScoreResult = await scoreCampaignAttempt({
         attemptBlob: attemptRecording,
         debugLabel: 'Candidate attempt sample',
+        includeRawPrediction: isDemoMode,
         lmPrior,
         scoringConfig,
         targetPhrase: activeChallenge.phrase,
       });
       const nextReversedAttempt = attemptScoreResult.reversedAttemptBlob;
-      const nextScore = attemptScoreResult.score;
-      const nextStars = attemptScoreResult.stars;
+      let nextScore = attemptScoreResult.score;
+      let nextStars = attemptScoreResult.stars;
+
+      if (isDemoMode) {
+        const transcriptFallback = scoreDemoTranscriptMatch(
+          activeChallenge.phrase,
+          attemptScoreResult.rawPredictionText,
+        );
+
+        if (transcriptFallback.stars > nextStars) {
+          nextStars = transcriptFallback.stars;
+          nextScore = Math.max(nextScore, transcriptFallback.score);
+        }
+      }
+
       let rewardResult: {
         challengeId: string;
         rewardAmount: number;
