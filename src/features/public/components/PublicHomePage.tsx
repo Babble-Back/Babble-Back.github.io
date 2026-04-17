@@ -23,19 +23,19 @@ type PublicHomeMode = 'auth' | 'home';
 
 const HOME_STEPS = [
   {
-    description: 'Your friend records a normal word.',
+    description: 'Your friend sends you a recording of them saying a word or phrase. Example: "Hello"',
     title: 'Friend Records',
   },
   {
-    description: 'You hear it reversed.',
+    description: "You hear your friend's recording in reverse. Example: you hear 'wayleh'",
     title: 'Hear It Reversed',
   },
   {
-    description: 'Babble it back.',
+    description: 'You attempt to mimic the reversed audio as closely as possible. Example: you say "wayleh"',
     title: 'Babble It Back',
   },
   {
-    description: 'You guess what your friend originally said.',
+    description: 'Listening to the reversed audio of your babble, you guess what your friend originally said. Example: you hear "Haylo" and guess "Hello"',
     title: 'Make Your Guess',
   },
 ] as const;
@@ -44,11 +44,11 @@ const PLAY_MODES = [
   {
     description:
       'Work through themed levels, sharpen your ear, and unlock more word sets to bring into friend games.',
-    title: 'Solo Campaign',
+    title: 'Solo Events',
   },
   {
     description:
-      'Challenge friends, send attempts back and forth, and see who can match the words best.',
+      'Work with friends, send attempts back and forth, and rise in the rankings together against others.',
     title: 'Play With Friends',
   },
 ] as const;
