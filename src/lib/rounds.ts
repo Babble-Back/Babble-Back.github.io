@@ -177,6 +177,16 @@ function isMissingStorageObjectError(message: string) {
   return /not found|does not exist|no such key|not exist/i.test(message);
 }
 
+function isMissingRpcSignatureError(message: string, functionName: string) {
+  const normalizedMessage = message.toLowerCase();
+  const normalizedFunctionName = functionName.toLowerCase();
+
+  return (
+    normalizedMessage.includes('could not find the function public.') &&
+    normalizedMessage.includes(normalizedFunctionName)
+  );
+}
+
 export function scoreToStars(score: number | null): RoundStarCount {
   if (score === null) {
     return 0;
@@ -619,9 +629,18 @@ export async function archiveCompletedRound(
     ),
   );
 
-  const { data, error } = await client.rpc('archive_completed_round', {
-    round_id: input.roundId,
+  let { data, error } = await client.rpc('archive_completed_round', {
+    archive_round_id: input.roundId,
   });
+
+  if (error && isMissingRpcSignatureError(error.message, 'archive_completed_round')) {
+    const fallbackResult = await client.rpc('archive_completed_round', {
+      round_id: input.roundId,
+    });
+
+    data = fallbackResult.data;
+    error = fallbackResult.error;
+  }
 
   if (error) {
     throw new Error(
