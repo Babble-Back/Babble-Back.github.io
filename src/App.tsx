@@ -6,6 +6,7 @@ import { CampaignPanel } from './features/campaign/components/CampaignPanel';
 import { PublicHomePage } from './features/public/components/PublicHomePage';
 import { InventoryPanel } from './features/resources/components/InventoryPanel';
 import { CreateRoundPanel } from './features/rounds/components/CreateRoundPanel';
+import { FriendMatchLeaderboardsModal } from './features/rounds/components/FriendMatchLeaderboardsModal';
 import { HomePanel, type HomeTableRow } from './features/rounds/components/HomePanel';
 import { PlayRoundPanel } from './features/rounds/components/PlayRoundPanel';
 import type {
@@ -389,6 +390,7 @@ function App() {
   const [appPath, setAppPath] = useState<AppPath>(() => getAppRoute().appPath);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isComposingNextRound, setIsComposingNextRound] = useState(false);
+  const [isFriendLeaderboardsOpen, setIsFriendLeaderboardsOpen] = useState(false);
   const [profile, setProfile] = useState<AppProfile | null>(null);
   const [friends, setFriends] = useState<Friend[]>([]);
   const [requests, setRequests] = useState<FriendRequest[]>([]);
@@ -643,6 +645,7 @@ function App() {
       setIsLoadingSelectedRound(false);
       setIsMenuOpen(false);
       setIsComposingNextRound(false);
+      setIsFriendLeaderboardsOpen(false);
       setCampaignBannerImage(null);
       setHasResolvedInitialCampaignBanner(false);
       initialLoadRequestIdRef.current += 1;
@@ -946,7 +949,6 @@ function App() {
         return {
           id: thread.friend.id,
           username: thread.friend.username,
-          averageStars: thread.averageStars,
           actionKind: shouldStartGame ? 'start_game' : 'open_friend',
           actionLabel: shouldStartGame ? 'Start Game' : isYourTurn ? 'Take Turn' : 'Their Turn',
           actionTone: shouldStartGame || isYourTurn ? 'take-turn' : 'their-turn',
@@ -959,7 +961,6 @@ function App() {
     const requestRows: SortableHomeTableRow[] = requests.map((request) => ({
       id: `request-${request.id}`,
       username: request.otherUserUsername,
-      averageStars: null,
       actionKind: 'pending_request',
       actionLabel: 'Pending Friend Request',
       actionTone: request.direction === 'incoming' ? 'take-turn' : 'their-turn',
@@ -1100,6 +1101,7 @@ function App() {
                   onCreateGame={handleCreateGame}
                   onOpenCampaign={handleOpenCampaign}
                   onOpenFriend={handleSelectFriend}
+                  onOpenLeaderboards={() => setIsFriendLeaderboardsOpen(true)}
                   onRefresh={handleHomeRefresh}
                 />
               ) : null}
@@ -1150,6 +1152,14 @@ function App() {
                 />
               ) : null}
             </div>
+
+            {currentUserId ? (
+              <FriendMatchLeaderboardsModal
+                currentUserId={currentUserId}
+                isOpen={isFriendLeaderboardsOpen}
+                onClose={() => setIsFriendLeaderboardsOpen(false)}
+              />
+            ) : null}
           </>
         )}
       </main>

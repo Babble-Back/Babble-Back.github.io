@@ -920,11 +920,20 @@ p {
 }
 
 .home-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   margin-bottom: 18px;
 }
 
 .home-panel-header h2 {
   margin-bottom: 0;
+  flex: 1 1 auto;
+}
+
+.home-leaderboards-button {
+  flex: 0 0 auto;
 }
 
 .home-games-section {
@@ -2753,6 +2762,69 @@ p {
   min-width: 3.25rem;
   color: var(--muted);
   font-weight: 900;
+}
+
+.friend-match-leaderboards-modal {
+  width: min(780px, 100%);
+}
+
+.friend-match-leaderboards-grid {
+  display: grid;
+  gap: 14px;
+}
+
+.friend-match-leaderboard-card {
+  display: grid;
+  gap: 12px;
+  padding: 18px;
+  border-radius: 22px;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.98), rgba(247, 250, 255, 0.9)),
+    rgba(255, 255, 255, 0.94);
+  border: 1px solid rgba(19, 33, 44, 0.07);
+}
+
+.friend-match-leaderboard-card-header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.friend-match-leaderboard-card h4 {
+  margin-bottom: 0;
+  font-size: 1rem;
+}
+
+.friend-match-leaderboard-empty {
+  margin: 0;
+}
+
+.friend-match-leaderboard-row {
+  align-items: center;
+}
+
+.friend-match-leaderboard-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.friend-match-leaderboard-copy span {
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.friend-match-leaderboard-metric {
+  text-align: right;
+  font-size: 0.96rem;
+}
+
+.friend-match-leaderboard-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.84rem;
 }
 
 @keyframes campaignEggDrift {

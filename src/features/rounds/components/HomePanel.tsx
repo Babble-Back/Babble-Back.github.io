@@ -1,5 +1,4 @@
 import { useRef, useState, type TouchEvent } from 'react';
-import { StarRating } from '../../../components/StarRating';
 import { respondToFriendRequest, sendFriendRequestByUsername } from '../../../lib/friends';
 import type { FriendRequestDirection } from '../../social/types';
 
@@ -9,7 +8,6 @@ type HomeTableActionTone = 'take-turn' | 'their-turn';
 export interface HomeTableRow {
   id: string;
   username: string;
-  averageStars: number | null;
   actionKind: HomeTableActionKind;
   actionLabel: string;
   actionTone: HomeTableActionTone;
@@ -24,15 +22,8 @@ interface HomePanelProps {
   onCreateGame?: (friendId: string) => void;
   onOpenFriend?: (friendId: string) => void;
   onOpenCampaign?: () => void;
+  onOpenLeaderboards?: () => void;
   onRefresh?: () => Promise<void>;
-}
-
-function formatAverageScore(averageStars: number | null) {
-  if (averageStars === null) {
-    return 'No score yet';
-  }
-
-  return `${averageStars.toFixed(1)} / 3`;
 }
 
 function getActionAriaLabel(row: HomeTableRow) {
@@ -104,6 +95,7 @@ export function HomePanel({
   onCreateGame,
   onOpenFriend,
   onOpenCampaign,
+  onOpenLeaderboards,
   onRefresh,
 }: HomePanelProps) {
   const pullThreshold = 72;
@@ -287,6 +279,13 @@ export function HomePanel({
         <div className="home-games-section">
           <div className="home-panel-header">
             <h2>Current Games</h2>
+            <button
+              className="button secondary home-leaderboards-button"
+              onClick={() => onOpenLeaderboards?.()}
+              type="button"
+            >
+              Leaderboards
+            </button>
           </div>
 
           {rows.length === 0 ? (
@@ -319,22 +318,6 @@ export function HomePanel({
                           </p>
                         ) : null}
                       </div>
-
-                      {!isPendingRequest ? (
-                        <div
-                          className="game-score"
-                          aria-label={`Average score ${formatAverageScore(row.averageStars)}`}
-                        >
-                          <span className="game-score-label">Average Score</span>
-                          <StarRating
-                            label={`Average score ${formatAverageScore(row.averageStars)}`}
-                            value={row.averageStars ?? 0}
-                          />
-                          <span className="game-score-value">
-                            {formatAverageScore(row.averageStars)}
-                          </span>
-                        </div>
-                      ) : null}
                     </div>
 
                     <div className="game-actions">
