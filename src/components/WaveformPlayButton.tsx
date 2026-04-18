@@ -1,6 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { buildCircularPath, clamp, FULL_CIRCLE, getBaseRadius, triangleWave } from './waveformCircle';
 
-const FULL_CIRCLE = Math.PI * 2;
 const TARGET_FRAME_MS = 1000 / 48;
 
 export type PlaybackStartKind = 'new' | 'resume';
@@ -25,20 +25,6 @@ export interface WaveformPlayButtonProps {
   disabled?: boolean;
 }
 
-function clamp(value: number, min: number, max: number) {
-  return Math.min(max, Math.max(min, value));
-}
-
-function toPolarPoint(radius: number, theta: number, center: number) {
-  return {
-    x: center + radius * Math.cos(theta - Math.PI / 2),
-    y: center + radius * Math.sin(theta - Math.PI / 2),
-  };
-}
-
-function triangleWave(phase: number) {
-  return (2 / Math.PI) * Math.asin(Math.sin(phase));
-}
 
 function usePrefersReducedMotion() {
   const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
@@ -63,32 +49,6 @@ function usePrefersReducedMotion() {
   }, []);
 
   return prefersReducedMotion;
-}
-
-function buildCircularPath(size: number, strokeWidth: number, radii: number[]) {
-  const center = size / 2;
-  const segmentTotal = radii.length;
-  const commands = new Array<string>(segmentTotal + 1);
-
-  for (let i = 0; i <= segmentTotal; i += 1) {
-    const index = i % segmentTotal;
-    const theta = (index / segmentTotal) * FULL_CIRCLE;
-    const point = toPolarPoint(radii[index], theta, center);
-    commands[i] = `${i === 0 ? 'M' : 'L'}${point.x.toFixed(2)} ${point.y.toFixed(2)}`;
-  }
-
-  return `${commands.join(' ')} Z`;
-}
-
-function getBaseRadius(size: number, strokeWidth: number, intensity: number, mode: 'playback' | 'record') {
-  const center = size / 2;
-  const safeOuterRadius = center - strokeWidth * 0.5 - 0.5;
-  const effectiveIntensity = mode === 'record' ? 1 : intensity;
-  const maxAmplitude = 16 * clamp(effectiveIntensity, 0.4, 4);
-  return {
-    baseRadius: clamp(safeOuterRadius - maxAmplitude - 1, strokeWidth + 3, safeOuterRadius),
-    safeOuterRadius,
-  };
 }
 
 export function WaveformPlayButton({
@@ -131,7 +91,7 @@ export function WaveformPlayButton({
   const initialPath = useMemo(() => {
     const { baseRadius } = getBaseRadius(size, strokeWidth, intensity, mode);
     const radii = Array.from({ length: segmentCount }, () => baseRadius);
-    return buildCircularPath(size, strokeWidth, radii);
+    return buildCircularPath(size, radii);
   }, [segmentCount, size, strokeWidth, intensity, mode]);
 
   useEffect(() => {
@@ -317,7 +277,7 @@ export function WaveformPlayButton({
           }
         }
 
-        pathElement.setAttribute('d', buildCircularPath(size, strokeWidth, radii));
+        pathElement.setAttribute('d', buildCircularPath(size, radii));
         lastFrameAtRef.current = now;
       }
 
