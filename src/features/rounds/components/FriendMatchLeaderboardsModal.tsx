@@ -106,6 +106,9 @@ export function FriendMatchLeaderboardsModal({
   isOpen,
   onClose,
 }: FriendMatchLeaderboardsModalProps) {
+  const [activeSectionKey, setActiveSectionKey] = useState<FriendMatchLeaderboardKey>(
+    LEADERBOARD_SECTIONS[0].key,
+  );
   const [entries, setEntries] = useState<FriendMatchLeaderboardEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -155,6 +158,14 @@ export function FriendMatchLeaderboardsModal({
     };
   }, [isOpen, monthRange.periodEnd, monthRange.periodStart]);
 
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+
+    setActiveSectionKey(LEADERBOARD_SECTIONS[0].key);
+  }, [isOpen]);
+
   const entriesBySection = useMemo(() => {
     return entries.reduce<Record<FriendMatchLeaderboardKey, FriendMatchLeaderboardEntry[]>>(
       (groupedEntries, entry) => {
@@ -174,6 +185,11 @@ export function FriendMatchLeaderboardsModal({
       },
     );
   }, [entries]);
+
+  const activeSection =
+    LEADERBOARD_SECTIONS.find((section) => section.key === activeSectionKey) ??
+    LEADERBOARD_SECTIONS[0];
+  const activeEntries = entriesBySection[activeSection.key];
 
   if (!isOpen) {
     return null;
@@ -213,45 +229,67 @@ export function FriendMatchLeaderboardsModal({
           <div className="friend-match-leaderboards-grid">
             {error ? <div className="error-banner">{error}</div> : null}
 
-            {LEADERBOARD_SECTIONS.map((section) => {
-              const sectionEntries = entriesBySection[section.key];
+            <div
+              aria-label="Leaderboard categories"
+              className="friend-match-leaderboard-tabs"
+              role="tablist"
+            >
+              {LEADERBOARD_SECTIONS.map((section) => (
+                <button
+                  aria-controls={`leaderboard-panel-${section.key}`}
+                  aria-selected={section.key === activeSection.key}
+                  className={`friend-match-leaderboard-tab${
+                    section.key === activeSection.key ? ' is-active' : ''
+                  }`}
+                  id={`leaderboard-tab-${section.key}`}
+                  key={section.key}
+                  onClick={() => setActiveSectionKey(section.key)}
+                  role="tab"
+                  type="button"
+                >
+                  {section.title}
+                </button>
+              ))}
+            </div>
 
-              return (
-                <section className="friend-match-leaderboard-card" key={section.key}>
-                  <div className="friend-match-leaderboard-card-header">
-                    <div>
-                      <div className="eyebrow">{section.title}</div>
-                      <h4>{section.description}</h4>
-                    </div>
-                  </div>
+            <section
+              aria-labelledby={`leaderboard-tab-${activeSection.key}`}
+              className="friend-match-leaderboard-card"
+              id={`leaderboard-panel-${activeSection.key}`}
+              role="tabpanel"
+            >
+              <div className="friend-match-leaderboard-card-header">
+                <div>
+                  <div className="eyebrow">{activeSection.title}</div>
+                  <h4>{activeSection.description}</h4>
+                </div>
+              </div>
 
-                  {sectionEntries.length === 0 ? (
-                    <p className="helper-text friend-match-leaderboard-empty">
-                      {section.emptyMessage}
-                    </p>
-                  ) : (
-                    <div className="campaign-leaderboard-list" role="list">
-                      {sectionEntries.map((entry) => (
-                        <div
-                          className="campaign-leaderboard-row friend-match-leaderboard-row"
-                          key={`${section.key}-${entry.rank}-${entry.primaryUserId}-${entry.secondaryUserId ?? 'solo'}`}
-                          role="listitem"
-                        >
-                          <span className="campaign-leaderboard-rank">#{entry.rank}</span>
-                          <div className="friend-match-leaderboard-copy">
-                            <strong>{formatEntryName(entry)}</strong>
-                            <span>{formatSample(entry, section.key)}</span>
-                          </div>
-                          <strong className="friend-match-leaderboard-metric">
-                            {formatMetric(entry, section.key)}
-                          </strong>
-                        </div>
-                      ))}
+              {activeEntries.length === 0 ? (
+                <p className="helper-text friend-match-leaderboard-empty">
+                  {activeSection.emptyMessage}
+                </p>
+              ) : (
+                <div className="campaign-leaderboard-list" role="list">
+                  {activeEntries.map((entry) => (
+                    <div
+                      className="campaign-leaderboard-row friend-match-leaderboard-row"
+                      key={`${activeSection.key}-${entry.rank}-${entry.primaryUserId}-${entry.secondaryUserId ?? 'solo'}`}
+                      role="listitem"
+                    >
+                      <span className="campaign-leaderboard-rank">#{entry.rank}</span>
+                      <div className="friend-match-leaderboard-copy">
+                        <strong>{formatEntryName(entry)}</strong>
+                        <span>{formatSample(entry, activeSection.key)}</span>
+                      </div>
+                      <strong className="friend-match-leaderboard-metric">
+                        {formatMetric(entry, activeSection.key)}
+                      </strong>
                     </div>
-                  )}
-                </section>
-              );
-            })}
+                  ))}
+                </div>
+              )}
+            </section>
           </div>
         )}
 

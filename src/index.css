@@ -2773,6 +2773,39 @@ p {
   gap: 14px;
 }
 
+.friend-match-leaderboard-tabs {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.friend-match-leaderboard-tab {
+  min-height: 44px;
+  padding: 10px 16px;
+  border-radius: 999px;
+  border: 1px solid rgba(19, 33, 44, 0.08);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(246, 249, 255, 0.82)),
+    rgba(255, 255, 255, 0.9);
+  color: var(--muted);
+  font-weight: 800;
+  transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease;
+}
+
+.friend-match-leaderboard-tab.is-active {
+  color: #ffffff;
+  border-color: rgba(255, 99, 84, 0.28);
+  background:
+    linear-gradient(135deg, rgba(255, 99, 84, 0.98), rgba(255, 159, 73, 0.94)),
+    rgba(255, 99, 84, 0.96);
+  box-shadow: 0 14px 26px rgba(255, 99, 84, 0.22);
+}
+
+.friend-match-leaderboard-tab:focus-visible {
+  outline: 2px solid rgba(27, 141, 255, 0.9);
+  outline-offset: 3px;
+}
+
 .friend-match-leaderboard-card {
   display: grid;
   gap: 12px;
