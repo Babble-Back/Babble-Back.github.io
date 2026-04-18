@@ -61,14 +61,10 @@ export interface Round {
   correctPhrase: string;
   difficulty: WordDifficulty;
   originalAudioBlob: Blob | null;
-  reversedAudioBlob: Blob | null;
   originalAudioUrl: string | null;
-  reversedAudioUrl: string | null;
   guess: string;
   attemptAudioBlob: Blob | null;
-  attemptReversedBlob: Blob | null;
   attemptAudioUrl: string | null;
-  attemptReversedUrl: string | null;
   score: number | null;
   status: RoundStatus;
 }

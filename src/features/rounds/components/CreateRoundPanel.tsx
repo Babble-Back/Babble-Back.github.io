@@ -1,6 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useAudioRecorder } from '../../../audio/hooks/useAudioRecorder';
-import { reverseAudioBlob } from '../../../audio/utils/reverseAudioBlob';
 import { AudioPlayerCard } from '../../../components/AudioPlayerCard';
 import { ToggleRecordButton } from '../../../components/ToggleRecordButton';
 import { WaveformLoader } from '../../../components/WaveformLoader';
@@ -125,12 +124,8 @@ export function CreateRoundPanel({
   const [isLoadingPacks, setIsLoadingPacks] = useState(true);
   const [isPurchasingPack, setIsPurchasingPack] = useState(false);
   const [packRefreshToken, setPackRefreshToken] = useState(0);
-  const [reversedAudioBlob, setReversedAudioBlob] = useState<Blob | null>(null);
-  const [reverseError, setReverseError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [isReversing, setIsReversing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const lastAutoReversedBlobRef = useRef<Blob | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -171,72 +166,21 @@ export function CreateRoundPanel({
   }, [selectedPack]);
 
   useEffect(() => {
-    setReversedAudioBlob(null);
-    setReverseError(null);
     setSaveError(null);
-    lastAutoReversedBlobRef.current = null;
-  }, [recorder.audioBlob, recorder.isRecording]);
-
-  useEffect(() => {
-    if (!recorder.audioBlob || recorder.isRecording) {
-      return;
-    }
-
-    const originalBlob = recorder.audioBlob;
-
-    if (lastAutoReversedBlobRef.current === originalBlob) {
-      return;
-    }
-
-    let cancelled = false;
-
-    const autoReverseOriginal = async () => {
-      setReverseError(null);
-      setIsReversing(true);
-
-      try {
-        const nextReversedAudio = await reverseAudioBlob(originalBlob);
-        if (cancelled) {
-          return;
-        }
-
-        setReversedAudioBlob(nextReversedAudio);
-        lastAutoReversedBlobRef.current = originalBlob;
-      } catch (error) {
-        if (!cancelled) {
-          setReverseError(
-            error instanceof Error ? error.message : 'Unable to reverse the original audio.',
-          );
-        }
-      } finally {
-        if (!cancelled) {
-          setIsReversing(false);
-        }
-      }
-    };
-
-    void autoReverseOriginal();
-
-    return () => {
-      cancelled = true;
-    };
   }, [recorder.audioBlob, recorder.isRecording]);
 
   const canContinueToRecord = Boolean(selectedOption);
   const canCreateRound = useMemo(
     () =>
-      Boolean(selectedOption && recorder.audioBlob && reversedAudioBlob) &&
-      !isReversing &&
+      Boolean(selectedOption && recorder.audioBlob) &&
       !isSaving &&
       !recorder.isRecording &&
       !recorder.isPreparing,
     [
-      isReversing,
       isSaving,
       recorder.audioBlob,
       recorder.isPreparing,
       recorder.isRecording,
-      reversedAudioBlob,
       selectedOption,
     ],
   );
@@ -252,10 +196,7 @@ export function CreateRoundPanel({
   const selectedPackIsLocked = Boolean(selectedPack && !selectedPack.isFree && !selectedPack.isUnlocked);
 
   const resetRecording = () => {
-    setReversedAudioBlob(null);
-    setReverseError(null);
     setSaveError(null);
-    lastAutoReversedBlobRef.current = null;
     recorder.clearRecording();
   };
 
@@ -271,7 +212,7 @@ export function CreateRoundPanel({
   };
 
   const handleCreateRound = async () => {
-    if (!recorder.audioBlob || !reversedAudioBlob || !selectedOption) {
+    if (!recorder.audioBlob || !selectedOption) {
       return;
     }
 
@@ -286,7 +227,6 @@ export function CreateRoundPanel({
         correctPhrase: selectedOption.text,
         difficulty: selectedOption.displayDifficulty,
         originalAudioBlob: recorder.audioBlob,
-        reversedAudioBlob,
       });
 
       onCreateRound(nextRound);
@@ -510,27 +450,13 @@ export function CreateRoundPanel({
               />
               <button
                 className="button ghost"
-                disabled={!recorder.audioBlob && !reversedAudioBlob}
+                disabled={!recorder.audioBlob}
                 onClick={resetRecording}
                 type="button"
               >
                 Clear take
               </button>
             </div>
-
-            {isReversing ? (
-              <div className="round-loader-callout" aria-live="polite" role="status">
-                <WaveformLoader
-                  className="round-loader-callout-spinner"
-                  size={92}
-                  strokeWidth={3.6}
-                />
-                <div>
-                  <strong>Reversing audio...</strong>
-                  <p>Building the flipped clip your friend will hear in the round.</p>
-                </div>
-              </div>
-            ) : null}
 
             <AudioPlayerCard
               title="Latest take"
@@ -587,7 +513,6 @@ export function CreateRoundPanel({
       <div className="stack">
         {packsError ? <div className="error-banner">{packsError}</div> : null}
         {recorder.error ? <div className="error-banner">{recorder.error}</div> : null}
-        {reverseError ? <div className="error-banner">{reverseError}</div> : null}
         {saveError ? <div className="error-banner">{saveError}</div> : null}
       </div>
     </section>

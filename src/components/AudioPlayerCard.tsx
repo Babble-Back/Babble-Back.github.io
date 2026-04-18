@@ -5,6 +5,9 @@ interface AudioPlayerCardProps {
   title: string;
   description: string;
   blob?: Blob | null;
+  emptyLabel?: string;
+  isLoading?: boolean;
+  loadingLabel?: string;
   remoteUrl?: string | null;
   playButtonDisabled?: boolean;
   onPlayRequest?: WaveformPlayButtonProps['onPlayRequest'];
@@ -14,6 +17,9 @@ export function AudioPlayerCard({
   title,
   description,
   blob,
+  emptyLabel = 'No audio available yet.',
+  isLoading = false,
+  loadingLabel = 'Preparing audio...',
   remoteUrl,
   playButtonDisabled = false,
   onPlayRequest,
@@ -40,7 +46,9 @@ export function AudioPlayerCard({
           />
         </div>
       ) : (
-        <div className="empty-state compact-empty">No audio available yet.</div>
+        <div className="empty-state compact-empty">
+          {isLoading ? loadingLabel : emptyLabel}
+        </div>
       )}
     </article>
   );

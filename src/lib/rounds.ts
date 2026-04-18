@@ -53,7 +53,7 @@ interface RoundRow {
   correct_phrase: string;
   difficulty: WordDifficulty | null;
   original_audio_path: string;
-  reversed_audio_path: string;
+  reversed_audio_path: string | null;
   guess: string | null;
   attempt_audio_path: string | null;
   attempt_reversed_path: string | null;
@@ -68,14 +68,12 @@ interface CreateRoundRecordInput {
   correctPhrase: string;
   difficulty: WordDifficulty;
   originalAudioBlob: Blob;
-  reversedAudioBlob: Blob;
 }
 
 interface SaveRoundAttemptInput {
   currentUserId: string;
   roundId: string;
   attemptAudioBlob: Blob;
-  attemptReversedBlob: Blob;
 }
 
 interface SubmitRoundGuessInput {
@@ -223,15 +221,13 @@ async function mapRoundRow(
   },
 ): Promise<Round> {
   const shouldIncludeAudioUrls = options?.includeAudioUrls ?? true;
-  const [originalAudioUrl, reversedAudioUrl, attemptAudioUrl, attemptReversedUrl] =
+  const [originalAudioUrl, attemptAudioUrl] =
     shouldIncludeAudioUrls
       ? await Promise.all([
           createSignedAudioUrl(row.original_audio_path),
-          createSignedAudioUrl(row.reversed_audio_path),
           createSignedAudioUrl(row.attempt_audio_path),
-          createSignedAudioUrl(row.attempt_reversed_path),
         ])
-      : [null, null, null, null];
+      : [null, null];
 
   return {
     id: row.id,
@@ -246,14 +242,10 @@ async function mapRoundRow(
     correctPhrase: row.correct_phrase,
     difficulty: row.difficulty ?? computeDifficulty(row.correct_phrase).difficulty,
     originalAudioBlob: null,
-    reversedAudioBlob: null,
     originalAudioUrl,
-    reversedAudioUrl,
     guess: row.guess ?? '',
     attemptAudioBlob: null,
-    attemptReversedBlob: null,
     attemptAudioUrl,
-    attemptReversedUrl,
     score: row.score,
     status: row.status,
   };
@@ -435,18 +427,11 @@ export async function createRoundRecord(
 ): Promise<Round> {
   const client = requireSupabase();
   const roundId = makeRoundId();
-  const [originalAudio, reversedAudio] = await Promise.all([
-    uploadAudio(input.originalAudioBlob, {
-      ownerId: input.currentUserId,
-      roundId,
-      label: 'original',
-    }),
-    uploadAudio(input.reversedAudioBlob, {
-      ownerId: input.currentUserId,
-      roundId,
-      label: 'reversed',
-    }),
-  ]);
+  const originalAudio = await uploadAudio(input.originalAudioBlob, {
+    ownerId: input.currentUserId,
+    roundId,
+    label: 'original',
+  });
 
   const { data, error } = await client
     .from('rounds')
@@ -457,7 +442,7 @@ export async function createRoundRecord(
       correct_phrase: normalizePackText(input.correctPhrase),
       difficulty: input.difficulty,
       original_audio_path: originalAudio.path,
-      reversed_audio_path: reversedAudio.path,
+      reversed_audio_path: null,
       status: 'waiting_for_attempt',
     })
     .select(ROUND_COLUMNS)
@@ -470,7 +455,6 @@ export async function createRoundRecord(
   const nextRound = {
     ...(await mapRoundRow(data as unknown as RoundRow)),
     originalAudioBlob: input.originalAudioBlob,
-    reversedAudioBlob: input.reversedAudioBlob,
   };
 
   try {
@@ -486,24 +470,17 @@ export async function saveRoundAttempt(
   input: SaveRoundAttemptInput,
 ): Promise<Round> {
   const client = requireSupabase();
-  const [attemptAudio, attemptReversedAudio] = await Promise.all([
-    uploadAudio(input.attemptAudioBlob, {
-      ownerId: input.currentUserId,
-      roundId: input.roundId,
-      label: 'attempt',
-    }),
-    uploadAudio(input.attemptReversedBlob, {
-      ownerId: input.currentUserId,
-      roundId: input.roundId,
-      label: 'attempt-reversed',
-    }),
-  ]);
+  const attemptAudio = await uploadAudio(input.attemptAudioBlob, {
+    ownerId: input.currentUserId,
+    roundId: input.roundId,
+    label: 'attempt',
+  });
 
   const { data, error } = await client
     .from('rounds')
     .update({
       attempt_audio_path: attemptAudio.path,
-      attempt_reversed_path: attemptReversedAudio.path,
+      attempt_reversed_path: null,
       status: 'attempted',
     })
     .eq('id', input.roundId)
@@ -517,7 +494,6 @@ export async function saveRoundAttempt(
   return {
     ...(await mapRoundRow(data as unknown as RoundRow)),
     attemptAudioBlob: input.attemptAudioBlob,
-    attemptReversedBlob: input.attemptReversedBlob,
   };
 }
 

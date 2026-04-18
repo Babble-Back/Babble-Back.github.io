@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useObjectUrl } from '../../../audio/hooks/useObjectUrl';
+import { useReversedAudio } from '../../../audio/hooks/useReversedAudio';
 import { useAudioRecorder } from '../../../audio/hooks/useAudioRecorder';
-import { reverseAudioBlob } from '../../../audio/utils/reverseAudioBlob';
 import { AudioPlayerCard } from '../../../components/AudioPlayerCard';
 import { WaveformLoader } from '../../../components/WaveformLoader';
 import { WaveformPlayButton, type PlaybackStartKind } from '../../../components/WaveformPlayButton';
@@ -130,16 +130,24 @@ function logRewardDebug(message: string, details?: Record<string, unknown>) {
 
 function RewardPlaybackButton({
   blob,
+  isLoading = false,
+  loadingLabel = 'Preparing audio...',
   remoteUrl,
 }: {
   blob?: Blob | null;
+  isLoading?: boolean;
+  loadingLabel?: string;
   remoteUrl?: string | null;
 }) {
   const objectUrl = useObjectUrl(blob);
   const src = objectUrl ?? remoteUrl ?? null;
 
   if (!src) {
-    return <div className="empty-state compact-empty reward-review-empty">No audio available yet.</div>;
+    return (
+      <div className="empty-state compact-empty reward-review-empty">
+        {isLoading ? loadingLabel : 'No audio available yet.'}
+      </div>
+    );
   }
 
   return (
@@ -230,11 +238,25 @@ export function PlayRoundPanel({
   }, []);
 
   const isRecipient = Boolean(round && round.recipientId === currentUserId);
-  const hasAttempt = Boolean(
-    round &&
-      (round.attemptAudioBlob || round.attemptAudioUrl) &&
-      (round.attemptReversedBlob || round.attemptReversedUrl),
-  );
+  const hasAttempt = Boolean(round && (round.attemptAudioBlob || round.attemptAudioUrl));
+  const {
+    reversedBlob: reversedPromptBlob,
+    isLoading: isLoadingReversedPrompt,
+    error: reversedPromptError,
+  } = useReversedAudio({
+    blob: round?.originalAudioBlob,
+    enabled: Boolean(round?.originalAudioBlob || round?.originalAudioUrl),
+    remoteUrl: round?.originalAudioUrl,
+  });
+  const {
+    reversedBlob: reversedAttemptBlob,
+    isLoading: isLoadingReversedAttempt,
+    error: reversedAttemptError,
+  } = useReversedAudio({
+    blob: round?.attemptAudioBlob,
+    enabled: Boolean(round?.attemptAudioBlob || round?.attemptAudioUrl),
+    remoteUrl: round?.attemptAudioUrl,
+  });
   const hasUnsavedAttempt = Boolean(
     recorder.audioBlob && lastSavedAttemptBlobRef.current !== recorder.audioBlob,
   );
@@ -261,7 +283,9 @@ export function PlayRoundPanel({
   const nextListenReplayCost = listenState?.nextPlayCost ?? extraListenCost;
   const listenPlaybackHelperText = !round
     ? ''
-    : isLoadingListenState
+    : isLoadingReversedPrompt
+      ? 'Preparing the reversed prompt from the saved recording.'
+      : isLoadingListenState
       ? 'Checking your free replay limit.'
       : freeListenCountRemaining > 0
         ? `${formatListenLabel(freeListenCountRemaining)} free out of ${formatListenLabel(effectiveFreeListenLimit)} remaining. Extra replays cost ${nextListenReplayCost} BB Coins each.`
@@ -271,11 +295,21 @@ export function PlayRoundPanel({
 
   const canSubmitGuess = useMemo(
     () =>
-      Boolean(round && isRecipient && hasAttempt && guess.trim()) &&
+      Boolean(round && isRecipient && hasAttempt && reversedAttemptBlob && guess.trim()) &&
       round?.status !== 'complete' &&
+      !isLoadingReversedAttempt &&
       !isSavingAttempt &&
       !isSubmittingGuess,
-    [guess, hasAttempt, isRecipient, isSavingAttempt, isSubmittingGuess, round],
+    [
+      guess,
+      hasAttempt,
+      isLoadingReversedAttempt,
+      isRecipient,
+      isSavingAttempt,
+      isSubmittingGuess,
+      reversedAttemptBlob,
+      round,
+    ],
   );
   const isRewardBusy = isAnimatingReward || isClaimingReward;
   const hasPendingReward = Boolean(roundReward && !roundReward.claimed);
@@ -421,16 +455,10 @@ export function PlayRoundPanel({
     setIsSavingAttempt(true);
 
     try {
-      const reversedAttemptBlob = await reverseAudioBlob(attemptBlob);
-      if (cancelled?.()) {
-        return;
-      }
-
       const savedRound = await saveRoundAttempt({
         currentUserId,
         roundId: currentRound.id,
         attemptAudioBlob: attemptBlob,
-        attemptReversedBlob: reversedAttemptBlob,
       });
 
       if (cancelled?.()) {
@@ -440,9 +468,7 @@ export function PlayRoundPanel({
       onUpdateRound(currentRound.id, (existingRound) => ({
         ...savedRound,
         originalAudioBlob: existingRound.originalAudioBlob,
-        reversedAudioBlob: existingRound.reversedAudioBlob,
         attemptAudioBlob: attemptBlob,
-        attemptReversedBlob: reversedAttemptBlob,
       }));
       lastSavedAttemptBlobRef.current = attemptBlob;
       recorder.clearRecording();
@@ -451,7 +477,7 @@ export function PlayRoundPanel({
         setError(
           caughtError instanceof Error
             ? caughtError.message
-            : 'Unable to reverse and save the attempt recording.',
+            : 'Unable to save the attempt recording.',
         );
       }
     } finally {
@@ -688,9 +714,7 @@ export function PlayRoundPanel({
       onUpdateRound(currentRound.id, (existingRound) => ({
         ...updatedRound,
         originalAudioBlob: existingRound.originalAudioBlob,
-        reversedAudioBlob: existingRound.reversedAudioBlob,
         attemptAudioBlob: existingRound.attemptAudioBlob,
-        attemptReversedBlob: existingRound.attemptReversedBlob,
       }));
     } catch (caughtError) {
       setError(
@@ -801,8 +825,9 @@ export function PlayRoundPanel({
       <div className="reward-review-block">
         <p className="reward-review-line">{activeRound.recipientUsername} heard:</p>
         <RewardPlaybackButton
-          blob={activeRound.reversedAudioBlob}
-          remoteUrl={activeRound.reversedAudioUrl}
+          blob={reversedPromptBlob}
+          isLoading={isLoadingReversedPrompt}
+          loadingLabel="Preparing reversed prompt..."
         />
       </div>
 
@@ -817,8 +842,9 @@ export function PlayRoundPanel({
       <div className="reward-review-block">
         <p className="reward-review-line">{activeRound.recipientUsername} Babble reversed:</p>
         <RewardPlaybackButton
-          blob={activeRound.attemptReversedBlob}
-          remoteUrl={activeRound.attemptReversedUrl}
+          blob={reversedAttemptBlob}
+          isLoading={isLoadingReversedAttempt}
+          loadingLabel="Preparing reversed take..."
         />
       </div>
     </div>
@@ -913,9 +939,10 @@ export function PlayRoundPanel({
       />
       <AudioPlayerCard
         title="Your reversed prompt"
-        description="The backward clip your friend heard before imitating it."
-        blob={activeRound.reversedAudioBlob}
-        remoteUrl={activeRound.reversedAudioUrl}
+        description="Generated locally from your saved forward prompt."
+        blob={reversedPromptBlob}
+        isLoading={isLoadingReversedPrompt}
+        loadingLabel="Preparing reversed prompt..."
       />
       <AudioPlayerCard
         title="Their imitation"
@@ -925,9 +952,10 @@ export function PlayRoundPanel({
       />
       <AudioPlayerCard
         title="Their imitation reversed"
-        description="The flipped version they used when making their guess."
-        blob={activeRound.attemptReversedBlob}
-        remoteUrl={activeRound.attemptReversedUrl}
+        description="Generated locally from their saved forward take."
+        blob={reversedAttemptBlob}
+        isLoading={isLoadingReversedAttempt}
+        loadingLabel="Preparing reversed take..."
       />
     </div>
   );
@@ -1023,10 +1051,11 @@ export function PlayRoundPanel({
               <AudioPlayerCard
                 title="Reversed prompt"
                 description={`You get ${formatListenLabel(effectiveFreeListenLimit)} for free. Extra replays cost ${nextListenReplayCost} BB Coins each.`}
-                blob={round.reversedAudioBlob}
+                blob={reversedPromptBlob}
+                isLoading={isLoadingReversedPrompt}
+                loadingLabel="Preparing reversed prompt..."
                 onPlayRequest={handleListenPlaybackRequest}
                 playButtonDisabled={isAuthorizingListenPlayback}
-                remoteUrl={round.reversedAudioUrl}
               />
 
               <div className="helper-text round-screen-helper">
@@ -1078,8 +1107,9 @@ export function PlayRoundPanel({
               <AudioPlayerCard
                 title="Reversed take"
                 description="Your imitation is locked in. Type the original phrase."
-                blob={round.attemptReversedBlob}
-                remoteUrl={round.attemptReversedUrl}
+                blob={reversedAttemptBlob}
+                isLoading={isLoadingReversedAttempt}
+                loadingLabel="Preparing reversed take..."
               />
 
               <div className="field">
@@ -1114,9 +1144,10 @@ export function PlayRoundPanel({
 
               <AudioPlayerCard
                 title="Your prompt reversed"
-                description="This is the flipped clip your friend is hearing while they record."
-                blob={round.reversedAudioBlob}
-                remoteUrl={round.reversedAudioUrl}
+                description="This reversed clip is generated locally from your saved prompt."
+                blob={reversedPromptBlob}
+                isLoading={isLoadingReversedPrompt}
+                loadingLabel="Preparing reversed prompt..."
               />
             </div>
           ) : null}
@@ -1147,7 +1178,9 @@ export function PlayRoundPanel({
           <div className="button-row">
             <button
               className="button primary"
-              disabled={isAuthorizingListenPlayback || recorder.isPreparing}
+              disabled={
+                isAuthorizingListenPlayback || isLoadingReversedPrompt || recorder.isPreparing
+              }
               onClick={() => {
                 void handleReadyToImitate();
               }}
@@ -1191,6 +1224,8 @@ export function PlayRoundPanel({
 
       <div className="stack">
         {recorder.error ? <div className="error-banner">{recorder.error}</div> : null}
+        {reversedPromptError ? <div className="error-banner">{reversedPromptError}</div> : null}
+        {reversedAttemptError ? <div className="error-banner">{reversedAttemptError}</div> : null}
         {error ? <div className="error-banner">{error}</div> : null}
       </div>
     </section>
