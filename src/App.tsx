@@ -1155,7 +1155,6 @@ function App() {
 
             {currentUserId ? (
               <FriendMatchLeaderboardsModal
-                currentUserId={currentUserId}
                 isOpen={isFriendLeaderboardsOpen}
                 onClose={() => setIsFriendLeaderboardsOpen(false)}
               />

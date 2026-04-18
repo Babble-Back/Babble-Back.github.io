@@ -7,7 +7,6 @@ import {
 } from '../../../lib/leaderboards';
 
 interface FriendMatchLeaderboardsModalProps {
-  currentUserId: string;
   isOpen: boolean;
   onClose: () => void;
 }
@@ -95,24 +94,15 @@ function formatSample(entry: FriendMatchLeaderboardEntry, leaderboardKey: Friend
   return `${entry.sampleSize} round${entry.sampleSize === 1 ? '' : 's'}`;
 }
 
-function formatEntryName(entry: FriendMatchLeaderboardEntry, currentUserId: string) {
+function formatEntryName(entry: FriendMatchLeaderboardEntry) {
   if (!entry.secondaryUserId || !entry.secondaryUsername) {
-    return entry.primaryUserId === currentUserId ? 'You' : entry.primaryUsername;
-  }
-
-  if (entry.primaryUserId === currentUserId) {
-    return `You + ${entry.secondaryUsername}`;
-  }
-
-  if (entry.secondaryUserId === currentUserId) {
-    return `${entry.primaryUsername} + You`;
+    return entry.primaryUsername;
   }
 
   return `${entry.primaryUsername} + ${entry.secondaryUsername}`;
 }
 
 export function FriendMatchLeaderboardsModal({
-  currentUserId,
   isOpen,
   onClose,
 }: FriendMatchLeaderboardsModalProps) {
@@ -205,7 +195,7 @@ export function FriendMatchLeaderboardsModal({
           <div>
             <div className="eyebrow">Leaderboards</div>
             <h3>{monthRange.label}</h3>
-            <p>Monthly friend-match standings. These reset every month.</p>
+            <p>Global monthly friend-match standings. These reset every month.</p>
           </div>
           <button className="button ghost" onClick={onClose} type="button">
             Close
@@ -249,7 +239,7 @@ export function FriendMatchLeaderboardsModal({
                         >
                           <span className="campaign-leaderboard-rank">#{entry.rank}</span>
                           <div className="friend-match-leaderboard-copy">
-                            <strong>{formatEntryName(entry, currentUserId)}</strong>
+                            <strong>{formatEntryName(entry)}</strong>
                             <span>{formatSample(entry, section.key)}</span>
                           </div>
                           <strong className="friend-match-leaderboard-metric">

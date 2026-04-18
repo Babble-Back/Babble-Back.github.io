@@ -236,7 +236,6 @@ as $$
     left join public.round_rewards as rr
       on rr.round_id = r.id
     where r.status = 'complete'
-      and (r.sender_id = cu.user_id or r.recipient_id = cu.user_id)
     group by
       r.id,
       f.id,
@@ -267,8 +266,7 @@ as $$
     from public.archived_round_history as arh
     join auth_context as cu
       on cu.user_id is not null
-    where (arh.speaker_id = cu.user_id or arh.babbler_id = cu.user_id)
-      and arh.completed_at >= period_start_input
+    where arh.completed_at >= period_start_input
       and arh.completed_at < period_end_input
   ),
   all_rounds as (
