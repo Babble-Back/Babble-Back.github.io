@@ -94,7 +94,7 @@ begin
 
   select
     coalesce(sum(rr.reward_amount), 0)::integer,
-    max(rr.campaign_id),
+    min(rr.campaign_id::text)::uuid,
     max(rr.campaign_resource_type),
     coalesce(sum(rr.campaign_reward_amount), 0)::integer,
     coalesce(min(rr.created_at), archived_round.updated_at, archived_round.created_at)
@@ -221,7 +221,7 @@ as $$
       r.recipient_id as babbler_id,
       public.score_to_stars(r.score) as stars,
       coalesce(sum(rr.reward_amount), 0)::integer as pair_coin_total,
-      max(rr.campaign_id) as campaign_id,
+      min(rr.campaign_id::text)::uuid as campaign_id,
       max(rr.campaign_resource_type) as campaign_resource_type,
       coalesce(sum(rr.campaign_reward_amount), 0)::integer as pair_campaign_reward_total,
       coalesce(min(rr.created_at), r.updated_at, r.created_at) as completed_at
