@@ -1,7 +1,14 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import {
+  buildCircularPath,
+  clamp,
+  FULL_CIRCLE,
+  getBaseRadius,
+  triangleWave,
+  wrappedAngularDistance,
+} from './waveformCircle';
 
-const FULL_CIRCLE = Math.PI * 2;
-const TARGET_FRAME_MS = 1000 / 36;
+const TARGET_FRAME_MS = 1000 / 48;
 
 export interface WaveformLoaderProps {
   size?: number;
@@ -18,25 +25,13 @@ export interface WaveformLoaderProps {
 }
 
 export const DEFAULT_WAVEFORM_LOADER_TUNING = {
-  segmentCount: 240,
-  smallAmplitude: 2.6,
-  activeAmplitude: 12,
-  waveformFrequency: 28,
-  travelSpeed: 2,
-  activeArcWidth: Math.PI / 3.9,
+  segmentCount: 180,
+  smallAmplitude: 1.4,
+  activeAmplitude: 24,
+  waveformFrequency: 26,
+  travelSpeed: 1,
+  activeArcWidth: Math.PI / 4,
 } as const;
-
-interface WaveformPathConfig {
-  activeAmplitude: number;
-  activeArcWidth: number;
-  baseRadius?: number;
-  segmentCount: number;
-  size: number;
-  smallAmplitude: number;
-  strokeWidth: number;
-  travelSpeed: number;
-  waveformFrequency: number;
-}
 
 function usePrefersReducedMotion() {
   const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
@@ -53,98 +48,14 @@ function usePrefersReducedMotion() {
 
     if (typeof mediaQuery.addEventListener === 'function') {
       mediaQuery.addEventListener('change', onChange);
-
-      return () => {
-        mediaQuery.removeEventListener('change', onChange);
-      };
+      return () => mediaQuery.removeEventListener('change', onChange);
     }
 
     mediaQuery.addListener(onChange);
-
-    return () => {
-      mediaQuery.removeListener(onChange);
-    };
+    return () => mediaQuery.removeListener(onChange);
   }, []);
 
   return prefersReducedMotion;
-}
-
-function clamp(value: number, minimum: number, maximum: number) {
-  return Math.min(maximum, Math.max(minimum, value));
-}
-
-function wrappedAngularDistance(left: number, right: number) {
-  return Math.abs(Math.atan2(Math.sin(left - right), Math.cos(left - right)));
-}
-
-function triangleWave(phase: number) {
-  return (2 / Math.PI) * Math.asin(Math.sin(phase));
-}
-
-function toPolarPoint(radius: number, theta: number, center: number) {
-  return {
-    x: center + radius * Math.cos(theta - Math.PI / 2),
-    y: center + radius * Math.sin(theta - Math.PI / 2),
-  };
-}
-
-function buildWaveformPath(config: WaveformPathConfig, timeSeconds: number) {
-  const center = config.size / 2;
-  const safeOuterRadius = center - config.strokeWidth * 0.5 - 0.5;
-  const baseRadiusFallback =
-    safeOuterRadius - config.smallAmplitude - config.activeAmplitude - 1.25;
-  const resolvedBaseRadius = clamp(
-    config.baseRadius ?? baseRadiusFallback,
-    config.strokeWidth,
-    safeOuterRadius,
-  );
-  const segmentTotal = Math.max(96, Math.min(720, Math.round(config.segmentCount)));
-  const waveformFrequency = Math.max(3, config.waveformFrequency);
-  const travelSpeed = Math.max(0, config.travelSpeed);
-  const activeArcWidth = clamp(config.activeArcWidth, Math.PI / 16, Math.PI * 1.35);
-  const activeCenter = (timeSeconds * travelSpeed + Math.PI * 0.16) % FULL_CIRCLE;
-  const activeSigma = Math.max(activeArcWidth / 2.35, 0.001);
-  const subtlePulse = 0.94 + 0.06 * Math.sin(timeSeconds * 1.55);
-  const minRadius = config.strokeWidth * 0.85;
-  const commands = new Array<string>(segmentTotal + 1);
-
-  for (let index = 0; index <= segmentTotal; index += 1) {
-    const theta = (index / segmentTotal) * FULL_CIRCLE;
-    const wrappedDistance = wrappedAngularDistance(theta, activeCenter);
-
-    // A wrapped gaussian envelope keeps one arc visibly louder while the rest stays restrained.
-    const envelope = Math.exp(-0.5 * Math.pow(wrappedDistance / activeSigma, 2));
-    const baseCarrierPhase =
-      theta * waveformFrequency +
-      0.24 * Math.sin(theta * 3.3 - timeSeconds * 0.85);
-    const activeCarrierPhase =
-      theta * waveformFrequency * 1.14 +
-      envelope * 1.15 -
-      wrappedDistance * 0.65;
-
-    const smallWaveOffset =
-      config.smallAmplitude *
-      subtlePulse *
-      (triangleWave(baseCarrierPhase) * 0.76 +
-        Math.sin(baseCarrierPhase * 1.92 - timeSeconds * 1.4) * 0.24);
-    const activeWaveOffset =
-      config.activeAmplitude *
-      envelope *
-      (0.92 + 0.14 * Math.sin(timeSeconds * 3.15 - wrappedDistance * 5.5)) *
-      (triangleWave(activeCarrierPhase) * 0.68 +
-        Math.sin(activeCarrierPhase * 2.08 - timeSeconds * 2.4) * 0.32);
-    const radius = clamp(
-      resolvedBaseRadius + smallWaveOffset + activeWaveOffset,
-      minRadius,
-      safeOuterRadius,
-    );
-    const point = toPolarPoint(radius, theta, center);
-    const command = index === 0 ? 'M' : 'L';
-
-    commands[index] = `${command}${point.x.toFixed(2)} ${point.y.toFixed(2)}`;
-  }
-
-  return `${commands.join(' ')} Z`;
 }
 
 export function WaveformLoader({
@@ -162,69 +73,72 @@ export function WaveformLoader({
 }: WaveformLoaderProps) {
   const gradientId = useId();
   const pathRef = useRef<SVGPathElement | null>(null);
+  const lastFrameAtRef = useRef(0);
   const prefersReducedMotion = usePrefersReducedMotion();
   const shouldAnimate = animated && !prefersReducedMotion;
-
-  const pathConfig = useMemo<WaveformPathConfig>(
-    () => ({
-      activeAmplitude,
-      activeArcWidth,
-      baseRadius,
-      segmentCount,
-      size,
-      smallAmplitude,
-      strokeWidth,
-      travelSpeed,
-      waveformFrequency,
-    }),
-    [
-      activeAmplitude,
-      activeArcWidth,
-      baseRadius,
-      segmentCount,
-      size,
-      smallAmplitude,
-      strokeWidth,
-      travelSpeed,
-      waveformFrequency,
-    ],
+  const resolvedSegmentCount = useMemo(
+    () => clamp(Math.round(segmentCount), prefersReducedMotion ? 96 : 140, 240),
+    [prefersReducedMotion, segmentCount],
   );
 
-  const staticPath = useMemo(() => buildWaveformPath(pathConfig, 0), [pathConfig]);
-  const composedClassName = ['waveform-loader', className].filter(Boolean).join(' ');
+  const initialPath = useMemo(() => {
+    const fallbackBase = getBaseRadius(size, strokeWidth, 1, 'playback').baseRadius;
+    const resolvedBase = clamp(baseRadius ?? fallbackBase, strokeWidth + 3, size / 2);
+    const radii = Array.from({ length: resolvedSegmentCount }, () => resolvedBase);
+    return buildCircularPath(size, radii);
+  }, [baseRadius, resolvedSegmentCount, size, strokeWidth]);
 
   useEffect(() => {
-    if (shouldAnimate) {
-      return;
-    }
-
     const pathElement = pathRef.current;
-
-    if (!pathElement) {
+    if (!pathElement || typeof window === 'undefined') {
       return;
     }
 
-    pathElement.setAttribute('d', staticPath);
-  }, [shouldAnimate, staticPath]);
-
-  useEffect(() => {
-    if (!shouldAnimate || typeof window === 'undefined') {
-      return;
-    }
-
-    const pathElement = pathRef.current;
-
-    if (!pathElement) {
+    if (!shouldAnimate) {
+      pathElement.setAttribute('d', initialPath);
       return;
     }
 
     let frameId = 0;
-    let lastFrameAt = 0;
 
     const draw = (now: number) => {
-      if (!lastFrameAt || now - lastFrameAt >= TARGET_FRAME_MS) {
-        pathElement.setAttribute('d', buildWaveformPath(pathConfig, now / 1000));
-        lastFrameAt = now;
+      if (!lastFrameAtRef.current || now - lastFrameAtRef.current >= TARGET_FRAME_MS) {
+        const { baseRadius: fallbackBaseRadius, safeOuterRadius } = getBaseRadius(size, strokeWidth, 1, 'playback');
+        const resolvedBase = clamp(baseRadius ?? fallbackBaseRadius, strokeWidth * 0.9, safeOuterRadius);
+        const activeCenter = now * 0.0018 * Math.max(0.2, travelSpeed);
+        const arcSigma = Math.max(clamp(activeArcWidth, Math.PI / 12, Math.PI / 2.2) / 2.35, 0.001);
+        const carrierFrequency = Math.max(8, waveformFrequency);
+        const minRadius = strokeWidth * 0.9;
+
+        const radii = new Array<number>(resolvedSegmentCount);
+
+        for (let i = 0; i < resolvedSegmentCount; i += 1) {
+          const theta = (i / resolvedSegmentCount) * FULL_CIRCLE;
+          const wrappedDistance = wrappedAngularDistance(theta, activeCenter);
+          const envelope = Math.exp(-0.5 * Math.pow(wrappedDistance / arcSigma, 2));
+          const syntheticEnergy = clamp(
+            0.12 +
+              0.88 * envelope +
+              0.2 * Math.max(0, triangleWave(theta * carrierFrequency - now * 0.0062)),
+            0,
+            1,
+          );
+
+          const ridgePhase = theta * carrierFrequency - now * 0.0062;
+          const ridge = Math.max(0, triangleWave(ridgePhase)) ** 0.52;
+          const spatialWeight = 0.82 + 0.18 * Math.cos(theta * 2.6 - now * 0.0011);
+          const drift = 0.84 + 0.16 * Math.sin(now * 0.0016 + theta * 5.6);
+          const emphasized = 0.34 * syntheticEnergy + 0.66 * syntheticEnergy ** 0.68;
+          const spikyEnergy = emphasized * (0.64 + ridge * 0.92);
+          const offset =
+            smallAmplitude * (0.7 + 0.3 * Math.sin(now * 0.0025 + theta * 4.4)) +
+            activeAmplitude * spikyEnergy * spatialWeight * drift;
+
+          radii[i] = clamp(resolvedBase + offset, minRadius, safeOuterRadius);
+        }
+
+        pathElement.setAttribute('d', buildCircularPath(size, radii));
+        lastFrameAtRef.current = now;
       }
 
       frameId = window.requestAnimationFrame(draw);
@@ -235,7 +149,21 @@ export function WaveformLoader({
     return () => {
       window.cancelAnimationFrame(frameId);
     };
-  }, [pathConfig, shouldAnimate]);
+  }, [
+    activeAmplitude,
+    activeArcWidth,
+    baseRadius,
+    initialPath,
+    resolvedSegmentCount,
+    shouldAnimate,
+    size,
+    smallAmplitude,
+    strokeWidth,
+    travelSpeed,
+    waveformFrequency,
+  ]);
+
+  const composedClassName = ['waveform-loader', className].filter(Boolean).join(' ');
 
   return (
     <svg
@@ -256,19 +184,18 @@ export function WaveformLoader({
           y1={size * 0.12}
           y2={size * 0.88}
         >
-          <stop offset="0%" stopColor="#ff4b63" />
-          <stop offset="20%" stopColor="#f12cb4" />
-          <stop offset="42%" stopColor="#9a78ff" />
-          <stop offset="47%" stopColor="#4aa8ff" />
-          <stop offset="68%" stopColor="#ff8a3d" />
-          <stop offset="84%" stopColor="#ffd547" />
-          <stop offset="100%" stopColor="#6ecf5b" />
+          <stop offset="0%" stopColor="#2ad6d9" />
+          <stop offset="18%" stopColor="#1b8dff" />
+          <stop offset="36%" stopColor="#6b5cff" />
+          <stop offset="54%" stopColor="#f12cb4" />
+          <stop offset="74%" stopColor="#ff7b4f" />
+          <stop offset="100%" stopColor="#b6de3f" />
         </linearGradient>
       </defs>
 
       <path
         ref={pathRef}
-        d={staticPath}
+        d={initialPath}
         fill="none"
         stroke={`url(#${gradientId})`}
         strokeLinecap="round"
