@@ -27,6 +27,7 @@ import {
 } from '../campaignAttemptScoring';
 import { readCampaignScoringConfig } from '../lmPrior';
 import { buildBackwardPhraseExample, formatDifficultyLabel } from '../scoring';
+import { getCampaignBrowserScoringError } from '../../../lib/asr/support';
 
 interface CampaignPanelProps {
   currentUserId?: string | null;
@@ -386,6 +387,7 @@ export function CampaignPanel({
   onDemoStateChange,
 }: CampaignPanelProps) {
   const isDemoMode = mode === 'demo';
+  const browserScoringBlockedReason = getCampaignBrowserScoringError();
   const originalRecorder = useAudioRecorder({
     audioConstraints: CAMPAIGN_AUDIO_CONSTRAINTS,
     preparedStreamIdleMs: 0,
@@ -512,10 +514,15 @@ export function CampaignPanel({
   }, [error]);
 
   useEffect(() => {
+    if (browserScoringBlockedReason) {
+      console.error('[CampaignPanel][ASR]', browserScoringBlockedReason);
+      return;
+    }
+
     if (asrWarmError) {
       console.error('[CampaignPanel][ASR]', asrWarmError);
     }
-  }, [asrWarmError]);
+  }, [asrWarmError, browserScoringBlockedReason]);
 
   useEffect(() => {
     if (leaderboardError) {
@@ -524,6 +531,12 @@ export function CampaignPanel({
   }, [leaderboardError]);
 
   useEffect(() => {
+    if (browserScoringBlockedReason) {
+      setAsrWarmError(browserScoringBlockedReason);
+      setIsScorerWarming(false);
+      return;
+    }
+
     let cancelled = false;
 
     const warmAsr = async () => {
@@ -549,7 +562,7 @@ export function CampaignPanel({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [browserScoringBlockedReason]);
 
   useEffect(() => {
     if (!campaignState?.challenges.length) {
@@ -697,6 +710,11 @@ export function CampaignPanel({
       challenge: CampaignChallenge,
       nextStage: Extract<CampaignStage, 'recording-original' | 'recording-attempt'>,
     ) => {
+      if (browserScoringBlockedReason) {
+        setError(browserScoringBlockedReason);
+        return;
+      }
+
       setIsStartingAttempt(true);
       setError(null);
 
@@ -791,6 +809,7 @@ export function CampaignPanel({
     },
     [
       attemptRecorder,
+      browserScoringBlockedReason,
       isDemoMode,
       originalRecorder,
       refreshCampaign,
@@ -851,6 +870,12 @@ export function CampaignPanel({
 
   const handleProcessAttempt = useCallback(async () => {
     if (!activeChallenge || !attemptRecording) {
+      return;
+    }
+
+    if (browserScoringBlockedReason) {
+      setError(browserScoringBlockedReason);
+      setStage('attempt-ready');
       return;
     }
 
@@ -1042,6 +1067,7 @@ export function CampaignPanel({
     activeChallenge,
     coins,
     campaignState,
+    browserScoringBlockedReason,
     isDemoMode,
     refreshCampaign,
     refreshCoins,
