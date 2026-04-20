@@ -3198,11 +3198,14 @@ p {
 }
 
 .auth-shell {
-  max-width: 560px;
-  margin: 0 auto;
+  width: 100%;
+  max-width: none;
+  margin: 0;
 }
 
 .public-home-shell {
+  width: min(100%, 720px);
+  margin: 0 auto;
   gap: 18px;
 }
 

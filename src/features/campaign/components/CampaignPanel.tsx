@@ -191,6 +191,36 @@ function formatCampaignTitle(state: CampaignState | null) {
   return campaignMatch?.[1]?.trim() || trimmedTitle || 'Monthly Campaign';
 }
 
+function getChallengeModeLabel(challenge: CampaignChallenge) {
+  return challenge.mode === 'reverse_only' ? 'Reverse Only' : 'Normal';
+}
+
+function ChallengePhraseCard({
+  challenge,
+  label = 'Phrase to replicate',
+  showBackwardExample = false,
+}: {
+  challenge: CampaignChallenge;
+  label?: string;
+  showBackwardExample?: boolean;
+}) {
+  const backwardExample = showBackwardExample
+    ? buildBackwardPhraseExample(challenge.phrase)
+    : null;
+
+  return (
+    <div className="result-box campaign-phrase-card">
+      <span className="campaign-phrase-label">{label}</span>
+      <strong>{challenge.phrase}</strong>
+      {showBackwardExample ? (
+        <p className="campaign-reverse-example">
+          Example: "{challenge.phrase}" {'->'} "{backwardExample}"
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 function normalizeDemoTranscriptText(value: string | null | undefined) {
   if (!value) {
     return '';
@@ -1194,9 +1224,9 @@ export function CampaignPanel({
     if (stage === 'recording-original') {
       return (
         <div className="campaign-step-stack">
-          <div className="result-box campaign-phrase-card">
-            <span className="campaign-phrase-label">Speak this phrase normally</span>
-            <strong>{activeChallenge.phrase}</strong>
+          <ChallengePhraseCard challenge={activeChallenge} />
+          <div className="result-box">
+            <p>Speak the phrase above normally to create the guide clip.</p>
           </div>
           <ToggleRecordButton
             disabled={false}
@@ -1230,6 +1260,10 @@ export function CampaignPanel({
     if (stage === 'guide') {
       return (
         <div className="campaign-step-stack">
+          <ChallengePhraseCard challenge={activeChallenge} />
+          <div className="result-box">
+            <p>Listen to the reversed guide for the phrase above, then imitate it as closely as you can.</p>
+          </div>
           <AudioPlayerCard
             blob={guideRecording}
             description="Use this reversed clip as the guide."
@@ -1245,22 +1279,18 @@ export function CampaignPanel({
     }
 
     if (stage === 'recording-attempt') {
-      const backwardExample = buildBackwardPhraseExample(activeChallenge.phrase);
-
       return (
         <div className="campaign-step-stack">
-          <div className="result-box campaign-phrase-card">
-            <span className="campaign-phrase-label">
+          <ChallengePhraseCard
+            challenge={activeChallenge}
+            showBackwardExample={activeChallenge.mode === 'reverse_only'}
+          />
+          <div className="result-box">
+            <p>
               {activeChallenge.mode === 'reverse_only'
-                ? 'Say this phrase backwards out loud'
-                : 'Imitate the reversed guide'}
-            </span>
-            <strong>{activeChallenge.phrase}</strong>
-            {activeChallenge.mode === 'reverse_only' ? (
-              <p className="campaign-reverse-example">
-                Example: "{activeChallenge.phrase}" {'->'} "{backwardExample}"
-              </p>
-            ) : null}
+                ? 'Say the phrase above backwards out loud.'
+                : 'Imitate the reversed guide using the phrase above.'}
+            </p>
           </div>
           <ToggleRecordButton
             disabled={false}
@@ -1277,9 +1307,9 @@ export function CampaignPanel({
     if (stage === 'attempt-ready') {
       return (
         <div className="campaign-step-stack">
-          <div className="result-box campaign-phrase-card">
-            <span className="campaign-phrase-label">Imitate the reversed guide</span>
-            <strong>{activeChallenge.phrase}</strong>
+          <ChallengePhraseCard challenge={activeChallenge} />
+          <div className="result-box">
+            <p>Replay or rerecord your imitation of the phrase above before you submit it.</p>
           </div>
           <ToggleRecordButton
             disabled={false}
@@ -1312,11 +1342,14 @@ export function CampaignPanel({
 
     if (stage === 'processing') {
       return (
-        <div className="round-loader-callout" aria-live="polite" role="status">
-          <WaveformLoader className="round-loader-callout-spinner" size={92} strokeWidth={3.6} />
-          <div>
-            <strong>Scoring challenge...</strong>
-            <p>Reversing audio, running the browser speech model, and computing phrase probability.</p>
+        <div className="campaign-step-stack">
+          <ChallengePhraseCard challenge={activeChallenge} />
+          <div className="round-loader-callout" aria-live="polite" role="status">
+            <WaveformLoader className="round-loader-callout-spinner" size={92} strokeWidth={3.6} />
+            <div>
+              <strong>Scoring challenge...</strong>
+              <p>Reversing audio, running the browser speech model, and computing phrase probability.</p>
+            </div>
           </div>
         </div>
       );
@@ -1325,6 +1358,7 @@ export function CampaignPanel({
     if (stage === 'reward' && campaignReward) {
       return (
         <div className="campaign-step-stack reward-stage-step">
+          <ChallengePhraseCard challenge={activeChallenge} />
           <RoundRewardSequence
             baseCoins={rewardBaseCoinsRef.current}
             bonusReward={
@@ -1497,9 +1531,7 @@ export function CampaignPanel({
                 {currentChallenge ? (
                   <div className="campaign-current-difficulty">
                     <span>{formatDifficultyLabel(currentChallenge.difficulty)}</span>
-                    <strong>
-                      {currentChallenge.mode === 'reverse_only' ? 'Reverse Only' : 'Normal'}
-                    </strong>
+                    <strong>{getChallengeModeLabel(currentChallenge)}</strong>
                   </div>
                 ) : null}
 
