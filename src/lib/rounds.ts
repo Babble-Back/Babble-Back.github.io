@@ -24,9 +24,13 @@ const ROUND_COLUMNS = [
   'difficulty',
   'original_audio_path',
   'reversed_audio_path',
+  'sender_reaction_message',
+  'sender_reaction_updated_at',
   'guess',
   'attempt_audio_path',
   'attempt_reversed_path',
+  'recipient_reaction_message',
+  'recipient_reaction_updated_at',
   'score',
   'status',
 ].join(', ');
@@ -54,9 +58,13 @@ interface RoundRow {
   difficulty: WordDifficulty | null;
   original_audio_path: string;
   reversed_audio_path: string | null;
+  sender_reaction_message: string | null;
+  sender_reaction_updated_at: string | null;
   guess: string | null;
   attempt_audio_path: string | null;
   attempt_reversed_path: string | null;
+  recipient_reaction_message: string | null;
+  recipient_reaction_updated_at: string | null;
   score: number | null;
   status: Round['status'];
 }
@@ -68,6 +76,7 @@ interface CreateRoundRecordInput {
   correctPhrase: string;
   difficulty: WordDifficulty;
   originalAudioBlob: Blob;
+  reactionMessage?: string | null;
 }
 
 interface SaveRoundAttemptInput {
@@ -81,6 +90,11 @@ interface SubmitRoundGuessInput {
   guess: string;
   correctPhrase: string;
   difficulty: WordDifficulty;
+}
+
+interface SaveRoundReactionInput {
+  roundId: string;
+  message: string;
 }
 
 interface ArchiveCompletedRoundInput {
@@ -158,6 +172,7 @@ export const freeListenLimitByDifficulty: Record<WordDifficulty, number> = {
 };
 
 export const extraListenCost = 5;
+export const maxRoundReactionLength = 500;
 
 function requireSupabase() {
   if (!supabase) {
@@ -185,6 +200,20 @@ function isMissingRpcSignatureError(message: string, functionName: string) {
     normalizedMessage.includes('could not find the function public.') &&
     normalizedMessage.includes(normalizedFunctionName)
   );
+}
+
+function normalizeRoundReactionMessage(message: string | null | undefined) {
+  const normalizedMessage = (message ?? '').trim();
+
+  if (!normalizedMessage) {
+    return null;
+  }
+
+  if (normalizedMessage.length > maxRoundReactionLength) {
+    throw new Error(`Reactions must be ${maxRoundReactionLength} characters or fewer.`);
+  }
+
+  return normalizedMessage;
 }
 
 export function scoreToStars(score: number | null): RoundStarCount {
@@ -253,9 +282,13 @@ async function mapRoundRow(
     difficulty: row.difficulty ?? computeDifficulty(row.correct_phrase).difficulty,
     originalAudioBlob: null,
     originalAudioUrl,
+    senderReactionMessage: row.sender_reaction_message,
+    senderReactionUpdatedAt: row.sender_reaction_updated_at,
     guess: row.guess ?? '',
     attemptAudioBlob: null,
     attemptAudioUrl,
+    recipientReactionMessage: row.recipient_reaction_message,
+    recipientReactionUpdatedAt: row.recipient_reaction_updated_at,
     score: row.score,
     status: row.status,
   };
@@ -437,6 +470,7 @@ export async function createRoundRecord(
 ): Promise<Round> {
   const client = requireSupabase();
   const roundId = makeRoundId();
+  const senderReactionMessage = normalizeRoundReactionMessage(input.reactionMessage);
   const originalAudio = await uploadAudio(input.originalAudioBlob, {
     ownerId: input.currentUserId,
     roundId,
@@ -453,6 +487,7 @@ export async function createRoundRecord(
       difficulty: input.difficulty,
       original_audio_path: originalAudio.path,
       reversed_audio_path: null,
+      sender_reaction_message: senderReactionMessage,
       status: 'waiting_for_attempt',
     })
     .select(ROUND_COLUMNS)
@@ -523,6 +558,27 @@ export async function submitRoundGuess(
   if (error || !data) {
     throw new Error(
       `Unable to submit the guess: ${
+        error ? formatSupabaseError(error, 'Unknown Supabase error.') : 'Unknown error.'
+      }`,
+    );
+  }
+
+  return mapRoundRow(data as unknown as RoundRow);
+}
+
+export async function saveRoundReaction(
+  input: SaveRoundReactionInput,
+): Promise<Round> {
+  const client = requireSupabase();
+  const reactionMessage = normalizeRoundReactionMessage(input.message);
+  const { data, error } = await client.rpc('set_round_reaction', {
+    reaction_message_input: reactionMessage,
+    reaction_round_id: input.roundId,
+  });
+
+  if (error || !data) {
+    throw new Error(
+      `Unable to save the reaction: ${
         error ? formatSupabaseError(error, 'Unknown Supabase error.') : 'Unknown error.'
       }`,
     );

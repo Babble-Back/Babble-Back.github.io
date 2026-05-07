@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { useObjectUrl } from '../../../audio/hooks/useObjectUrl';
 import { useReversedAudio } from '../../../audio/hooks/useReversedAudio';
 import { useAudioRecorder } from '../../../audio/hooks/useAudioRecorder';
@@ -19,7 +19,9 @@ import {
   freeListenLimitByDifficulty,
   getRoundListenState,
   markRoundResultsViewed,
+  maxRoundReactionLength,
   saveRoundAttempt,
+  saveRoundReaction,
   submitRoundGuess,
 } from '../../../lib/rounds';
 import { getRoundSummary, getScorePresentation } from '../scorePresentation';
@@ -157,6 +159,172 @@ function RewardPlaybackButton({
   );
 }
 
+function hasReactionMessage(message: string | null | undefined) {
+  return Boolean(message?.trim());
+}
+
+function RoundReactionBubble({
+  authorLabel,
+  message,
+}: {
+  authorLabel: string;
+  message: string | null | undefined;
+}) {
+  if (!hasReactionMessage(message)) {
+    return null;
+  }
+
+  return (
+    <div className="round-reaction-bubble" aria-label={`${authorLabel} reaction`}>
+      <span className="round-reaction-bubble-kicker">{authorLabel}</span>
+      <p>{message}</p>
+    </div>
+  );
+}
+
+function RoundReactionThread({
+  recipientLabel,
+  recipientMessage,
+  senderLabel,
+  senderMessage,
+}: {
+  recipientLabel: string;
+  recipientMessage: string | null | undefined;
+  senderLabel: string;
+  senderMessage: string | null | undefined;
+}) {
+  if (!hasReactionMessage(senderMessage) && !hasReactionMessage(recipientMessage)) {
+    return null;
+  }
+
+  return (
+    <div className="round-reaction-thread">
+      <RoundReactionBubble authorLabel={senderLabel} message={senderMessage} />
+      <RoundReactionBubble authorLabel={recipientLabel} message={recipientMessage} />
+    </div>
+  );
+}
+
+function RewardAudioWithReaction({
+  blob,
+  description,
+  isLoading = false,
+  loadingLabel = 'Preparing audio...',
+  reactionLabel,
+  reactionMessage,
+  remoteUrl,
+  title,
+}: {
+  blob?: Blob | null;
+  description: string;
+  isLoading?: boolean;
+  loadingLabel?: string;
+  reactionLabel: string;
+  reactionMessage: string | null | undefined;
+  remoteUrl?: string | null;
+  title: string;
+}) {
+  return (
+    <article className="audio-card reward-reaction-audio-card">
+      <div className="audio-card-head">
+        <div>
+          <h4>{title}</h4>
+        </div>
+      </div>
+      <p>{description}</p>
+      <div className="reward-reaction-playback-row">
+        <RewardPlaybackButton
+          blob={blob}
+          isLoading={isLoading}
+          loadingLabel={loadingLabel}
+          remoteUrl={remoteUrl}
+        />
+        <RoundReactionBubble authorLabel={reactionLabel} message={reactionMessage} />
+      </div>
+    </article>
+  );
+}
+
+function RoundReactionComposer({
+  buttonLabel,
+  draft,
+  disabled = false,
+  fieldId,
+  isOpen,
+  isSaving,
+  onCancel,
+  onChange,
+  onOpen,
+  onSave,
+}: {
+  buttonLabel: string;
+  draft: string;
+  disabled?: boolean;
+  fieldId: string;
+  isOpen: boolean;
+  isSaving: boolean;
+  onCancel: () => void;
+  onChange: (value: string) => void;
+  onOpen: () => void;
+  onSave: () => void;
+}) {
+  const trimmedDraft = draft.trim();
+
+  if (!isOpen) {
+    return (
+      <div className="round-reaction-composer">
+        <button className="button comment" disabled={disabled || isSaving} onClick={onOpen} type="button">
+          {buttonLabel}
+        </button>
+      </div>
+    );
+  }
+
+  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    if (!trimmedDraft || disabled || isSaving) {
+      return;
+    }
+
+    onSave();
+  };
+
+  return (
+    <form className="round-reaction-composer" onSubmit={handleSubmit}>
+      <div className="field">
+        <label htmlFor={fieldId}>Comment message</label>
+        <textarea
+          id={fieldId}
+          disabled={disabled || isSaving}
+          maxLength={maxRoundReactionLength}
+          onChange={(event) => onChange(event.target.value)}
+          placeholder="Type a message for this reward."
+          rows={3}
+          value={draft}
+        />
+      </div>
+      <div className="round-reaction-composer-footer">
+        <span>
+          {draft.length}/{maxRoundReactionLength}
+        </span>
+        <div className="button-row">
+          <button className="button ghost" disabled={isSaving} onClick={onCancel} type="button">
+            Cancel
+          </button>
+          <button
+            className="button primary"
+            disabled={!trimmedDraft || disabled || isSaving}
+            type="submit"
+          >
+            {isSaving ? 'Saving...' : 'Send Comment'}
+          </button>
+        </div>
+      </div>
+    </form>
+  );
+}
+
 export function PlayRoundPanel({
   currentUserId,
   isLoadingRound = false,
@@ -190,6 +358,9 @@ export function PlayRoundPanel({
   const [isLoadingListenState, setIsLoadingListenState] = useState(false);
   const [isAuthorizingListenPlayback, setIsAuthorizingListenPlayback] = useState(false);
   const [hasConfirmedListen, setHasConfirmedListen] = useState(false);
+  const [isReactionComposerOpen, setIsReactionComposerOpen] = useState(false);
+  const [reactionDraft, setReactionDraft] = useState('');
+  const [isSavingReaction, setIsSavingReaction] = useState(false);
   const lastSavedAttemptBlobRef = useRef<Blob | null>(null);
   const rewardBaseCoinsRef = useRef(0);
   const loadedRewardRoundIdRef = useRef<string | null>(null);
@@ -208,6 +379,15 @@ export function PlayRoundPanel({
     setListenState(null);
     setIsLoadingListenState(false);
     setIsAuthorizingListenPlayback(false);
+    setIsReactionComposerOpen(false);
+    setReactionDraft(
+      round?.senderId === currentUserId
+        ? (round.senderReactionMessage ?? '')
+        : round?.recipientId === currentUserId
+          ? (round.recipientReactionMessage ?? '')
+          : '',
+    );
+    setIsSavingReaction(false);
     rewardBaseCoinsRef.current = coins;
     loadedRewardRoundIdRef.current = null;
     setCoinPreview(null);
@@ -791,9 +971,80 @@ export function PlayRoundPanel({
     );
   }
 
+  const handleSaveReaction = async () => {
+    const currentRound = round;
+    const message = reactionDraft.trim();
+
+    if (!currentRound || !message) {
+      return;
+    }
+
+    if (reactionDraft.length > maxRoundReactionLength) {
+      setError(`Reactions must be ${maxRoundReactionLength} characters or fewer.`);
+      return;
+    }
+
+    setError(null);
+    setIsSavingReaction(true);
+
+    try {
+      const updatedRound = await saveRoundReaction({
+        roundId: currentRound.id,
+        message,
+      });
+
+      onUpdateRound(currentRound.id, (existingRound) => ({
+        ...updatedRound,
+        originalAudioBlob: existingRound.originalAudioBlob,
+        attemptAudioBlob: existingRound.attemptAudioBlob,
+      }));
+      setReactionDraft(
+        updatedRound.senderId === currentUserId
+          ? (updatedRound.senderReactionMessage ?? '')
+          : (updatedRound.recipientReactionMessage ?? ''),
+      );
+      setIsReactionComposerOpen(false);
+    } catch (caughtError) {
+      setError(
+        caughtError instanceof Error ? caughtError.message : 'Unable to save the reaction.',
+      );
+    } finally {
+      setIsSavingReaction(false);
+    }
+  };
+
   const activeRound = round;
   const showRewardPage = activeRound.status === 'complete';
   const isSenderRewardPage = showRewardPage && !isRecipient;
+  const senderReactionMessage = activeRound.senderReactionMessage?.trim() || null;
+  const recipientReactionMessage = activeRound.recipientReactionMessage?.trim() || null;
+  const ownReactionMessage = recipientReactionMessage;
+  const senderReactionLabel = isRecipient ? `${activeRound.senderUsername} reacted` : 'You reacted';
+  const recipientReactionLabel = isRecipient
+    ? 'You reacted'
+    : `${activeRound.recipientUsername} reacted`;
+  const reactionComposer = showRewardPage && isRecipient ? (
+    <RoundReactionComposer
+      buttonLabel={ownReactionMessage ? 'Edit Comment' : 'Add Comment'}
+      disabled={isRewardBusy}
+      draft={reactionDraft}
+      fieldId={`roundReaction-${activeRound.id}`}
+      isOpen={isReactionComposerOpen}
+      isSaving={isSavingReaction}
+      onCancel={() => {
+        setReactionDraft(ownReactionMessage ?? '');
+        setIsReactionComposerOpen(false);
+      }}
+      onChange={setReactionDraft}
+      onOpen={() => {
+        setReactionDraft(ownReactionMessage ?? '');
+        setIsReactionComposerOpen(true);
+      }}
+      onSave={() => {
+        void handleSaveReaction();
+      }}
+    />
+  ) : null;
   const rewardResultSummary =
     isRecipient && activeRound.status === 'complete' && scorePresentation ? (
       <div className="reward-reveal-details">
@@ -816,10 +1067,18 @@ export function PlayRoundPanel({
           <span className="reward-review-label">{activeRound.recipientUsername} guessed:</span>
           <strong className="reward-review-phrase">{activeRound.guess || 'No guess submitted'}</strong>
         </p>
-        <RewardPlaybackButton
-          blob={activeRound.originalAudioBlob}
-          remoteUrl={activeRound.originalAudioUrl}
-        />
+        <div className="reward-reaction-playback-row">
+          <RewardPlaybackButton
+            blob={activeRound.originalAudioBlob}
+            remoteUrl={activeRound.originalAudioUrl}
+          />
+          <RoundReactionThread
+            recipientLabel={recipientReactionLabel}
+            recipientMessage={recipientReactionMessage}
+            senderLabel={senderReactionLabel}
+            senderMessage={senderReactionMessage}
+          />
+        </div>
       </div>
 
       <div className="reward-review-block">
@@ -983,13 +1242,26 @@ export function PlayRoundPanel({
       >
         {rewardResultSummary}
         {isRecipient ? (
-          <AudioPlayerCard
+          <RewardAudioWithReaction
             title="Original phrase clip"
             description="Replay the forward clip if you want to compare it to your guess."
             blob={activeRound.originalAudioBlob}
+            reactionLabel={senderReactionLabel}
+            reactionMessage={senderReactionMessage}
             remoteUrl={activeRound.originalAudioUrl}
           />
         ) : senderRewardReview}
+        {isRecipient ? (
+          <>
+            <RoundReactionThread
+              recipientLabel={recipientReactionLabel}
+              recipientMessage={recipientReactionMessage}
+              senderLabel={senderReactionLabel}
+              senderMessage={null}
+            />
+            {reactionComposer}
+          </>
+        ) : null}
         {isRecipient ? (
           <div className="button-row">
             <button

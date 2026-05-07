@@ -31,7 +31,7 @@ import {
 } from './lib/push';
 import { getActiveCampaignHome } from './lib/campaigns';
 import { archiveCompletedRound, getRoundDetails, listHomeThreads } from './lib/rounds';
-import { supabaseConfigError } from './lib/supabase';
+import { hasInitialPasswordRecoveryLink, supabaseConfigError } from './lib/supabase';
 import { InstallAppPrompt } from './pwa/InstallAppPrompt';
 import { CoinDisplay, ResourceProvider } from './features/resources/ResourceProvider';
 
@@ -404,6 +404,9 @@ function App() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [pushError, setPushError] = useState<string | null>(null);
   const [signOutError, setSignOutError] = useState<string | null>(null);
+  const [isPasswordRecoveryActive, setIsPasswordRecoveryActive] = useState(
+    hasInitialPasswordRecoveryLink,
+  );
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [campaignBannerImage, setCampaignBannerImage] = useState<string | null>(null);
   const [hasResolvedInitialCampaignBanner, setHasResolvedInitialCampaignBanner] = useState(false);
@@ -467,6 +470,10 @@ function App() {
   }, [applyRouteState]);
 
   useEffect(() => {
+    if (isPasswordRecoveryActive) {
+      return;
+    }
+
     if (!currentUserId) {
       if (appPath === '/campaign' || appPath === '/inventory' || view === 'thread') {
         navigateToRoute(createHomeRoute(), { replace: true });
@@ -478,7 +485,7 @@ function App() {
     if (appPath === '/auth') {
       navigateToRoute(createHomeRoute(), { replace: true });
     }
-  }, [appPath, currentUserId, navigateToRoute, view]);
+  }, [appPath, currentUserId, isPasswordRecoveryActive, navigateToRoute, view]);
 
   useEffect(() => {
     if (supabaseConfigError) {
@@ -514,16 +521,21 @@ function App() {
 
     void loadCurrentSession();
 
-    const subscription = subscribeToAuthChanges((_event, session) => {
+    const subscription = subscribeToAuthChanges((event, session) => {
       setCurrentUserId(session?.user.id ?? null);
       setSignOutError(null);
+
+      if (event === 'PASSWORD_RECOVERY') {
+        setIsPasswordRecoveryActive(true);
+        navigateToRoute(createAuthRoute(), { replace: true });
+      }
     });
 
     return () => {
       isActive = false;
       subscription.unsubscribe();
     };
-  }, []);
+  }, [navigateToRoute]);
 
   useEffect(() => {
     if (!currentUserId) {
@@ -934,6 +946,13 @@ function App() {
       setSignOutError(error instanceof Error ? error.message : 'Unable to sign out.');
     }
   };
+
+  const handlePasswordResetComplete = useCallback(() => {
+    setIsPasswordRecoveryActive(false);
+    navigateToRoute(createHomeRoute(), { replace: true });
+    void refreshAppData({ silent: true, skipIfInFlight: true });
+  }, [navigateToRoute, refreshAppData]);
+
   const homeRows = useMemo(() => {
     type SortableHomeTableRow = HomeTableRow & { sortAt: string; sortRank: number };
 
@@ -1006,6 +1025,19 @@ function App() {
 
         {isAuthLoading ? (
           <FullscreenLoadingScreen />
+        ) : isPasswordRecoveryActive ? (
+          <PublicHomePage
+            hideAuthBackButton
+            initialAuthMode="reset"
+            mode="auth"
+            onPasswordResetComplete={handlePasswordResetComplete}
+            onOpenAuth={() => {
+              navigateToRoute(createAuthRoute());
+            }}
+            onOpenHome={() => {
+              navigateToRoute(createHomeRoute());
+            }}
+          />
         ) : !currentUserId ? (
           <PublicHomePage
             mode={appPath === '/auth' ? 'auth' : 'home'}

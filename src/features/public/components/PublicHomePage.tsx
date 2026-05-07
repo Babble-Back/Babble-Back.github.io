@@ -54,7 +54,10 @@ const PLAY_MODES = [
 ] as const;
 
 interface PublicHomePageProps {
+  hideAuthBackButton?: boolean;
+  initialAuthMode?: AuthMode;
   mode: PublicHomeMode;
+  onPasswordResetComplete?: () => void;
   onOpenAuth: () => void;
   onOpenHome: () => void;
 }
@@ -64,15 +67,22 @@ function updateBannerImageStyle(imageUrl: string | null) {
 }
 
 export function PublicHomePage({
+  hideAuthBackButton = false,
+  initialAuthMode = 'login',
   mode,
+  onPasswordResetComplete,
   onOpenAuth,
   onOpenHome,
 }: PublicHomePageProps) {
   const [campaignHome, setCampaignHome] = useState<ActiveCampaignHome | null>(null);
   const [demoBase, setDemoBase] = useState<PublicCampaignDemoBase | null>(null);
   const [demoCampaignState, setDemoCampaignState] = useState<CampaignState | null>(null);
-  const [authMode, setAuthMode] = useState<AuthMode>('login');
+  const [authMode, setAuthMode] = useState<AuthMode>(initialAuthMode);
   const [isDemoOpen, setIsDemoOpen] = useState(false);
+
+  useEffect(() => {
+    setAuthMode(initialAuthMode);
+  }, [initialAuthMode]);
 
   useEffect(() => {
     let cancelled = false;
@@ -174,17 +184,22 @@ export function PublicHomePage({
   if (mode === 'auth') {
     return (
       <div className="stack public-home-shell">
-        <div className="button-row public-home-top-actions">
-          <button
-            className="button ghost"
-            onClick={onOpenHome}
-            type="button"
-          >
-            Back
-          </button>
-        </div>
+        {hideAuthBackButton ? null : (
+          <div className="button-row public-home-top-actions">
+            <button
+              className="button ghost"
+              onClick={onOpenHome}
+              type="button"
+            >
+              Back
+            </button>
+          </div>
+        )}
 
-        <AuthPanel initialMode={authMode} />
+        <AuthPanel
+          initialMode={authMode}
+          onPasswordResetComplete={onPasswordResetComplete}
+        />
       </div>
     );
   }

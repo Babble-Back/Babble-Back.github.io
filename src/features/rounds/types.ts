@@ -62,9 +62,13 @@ export interface Round {
   difficulty: WordDifficulty;
   originalAudioBlob: Blob | null;
   originalAudioUrl: string | null;
+  senderReactionMessage: string | null;
+  senderReactionUpdatedAt: string | null;
   guess: string;
   attemptAudioBlob: Blob | null;
   attemptAudioUrl: string | null;
+  recipientReactionMessage: string | null;
+  recipientReactionUpdatedAt: string | null;
   score: number | null;
   status: RoundStatus;
 }

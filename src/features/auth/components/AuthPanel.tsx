@@ -1,13 +1,21 @@
 import { useEffect, useState } from 'react';
-import { signInWithIdentifier, signUpWithEmail } from '../../../lib/auth';
+import {
+  requestPasswordReset,
+  signInWithIdentifier,
+  signUpWithEmail,
+  updateRecoveredPassword,
+} from '../../../lib/auth';
 import { supabaseConfigError } from '../../../lib/supabase';
 import homeLogo from '../../../assets/backtalk-logo.png';
 
-export type AuthMode = 'login' | 'register';
+export type AuthMode = 'login' | 'register' | 'forgot' | 'reset';
 
 interface AuthPanelProps {
   initialMode?: AuthMode;
+  onPasswordResetComplete?: () => void;
 }
+
+type AuthAction = 'signup' | 'login' | 'reset-request' | 'password-update';
 
 function normalizeUsernamePreview(value: string) {
   return value
@@ -17,7 +25,26 @@ function normalizeUsernamePreview(value: string) {
     .replace(/^_+|_+$/g, '');
 }
 
-export function AuthPanel({ initialMode = 'login' }: AuthPanelProps) {
+function getAuthTitle(mode: AuthMode) {
+  if (mode === 'register') {
+    return 'Create account';
+  }
+
+  if (mode === 'forgot') {
+    return 'Reset password';
+  }
+
+  if (mode === 'reset') {
+    return 'Choose new password';
+  }
+
+  return 'Sign in';
+}
+
+export function AuthPanel({
+  initialMode = 'login',
+  onPasswordResetComplete,
+}: AuthPanelProps) {
   const [mode, setMode] = useState<AuthMode>(initialMode);
   const [identifier, setIdentifier] = useState('');
   const [username, setUsername] = useState('');
@@ -26,11 +53,19 @@ export function AuthPanel({ initialMode = 'login' }: AuthPanelProps) {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
-  const [activeAction, setActiveAction] = useState<'signup' | 'login' | null>(null);
+  const [activeAction, setActiveAction] = useState<AuthAction | null>(null);
 
   useEffect(() => {
     setMode(initialMode);
+    setError(null);
+    setInfo(null);
+    setActiveAction(null);
   }, [initialMode]);
+
+  const clearFeedback = () => {
+    setError(null);
+    setInfo(null);
+  };
 
   const handleSignUp = async () => {
     const normalizedUsername = normalizeUsernamePreview(username);
@@ -90,12 +125,70 @@ export function AuthPanel({ initialMode = 'login' }: AuthPanelProps) {
     }
   };
 
+  const handlePasswordResetRequest = async () => {
+    setError(null);
+    setInfo(null);
+    setActiveAction('reset-request');
+
+    try {
+      await requestPasswordReset(email);
+      setInfo('If an account exists for that email, a reset link has been sent.');
+    } catch (caughtError) {
+      setError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : 'Unable to send the reset email.',
+      );
+    } finally {
+      setActiveAction(null);
+    }
+  };
+
+  const handleRecoveredPasswordUpdate = async () => {
+    if (password.length < 6) {
+      setError('Choose a password with at least 6 characters.');
+      setInfo(null);
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      setError('Passwords do not match.');
+      setInfo(null);
+      return;
+    }
+
+    setError(null);
+    setInfo(null);
+    setActiveAction('password-update');
+
+    try {
+      await updateRecoveredPassword(password);
+      setPassword('');
+      setConfirmPassword('');
+      setInfo('Password updated.');
+
+      if (onPasswordResetComplete) {
+        onPasswordResetComplete();
+      } else {
+        setMode('login');
+      }
+    } catch (caughtError) {
+      setError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : 'Unable to update your password.',
+      );
+    } finally {
+      setActiveAction(null);
+    }
+  };
+
   return (
     <section className="surface auth-shell">
       <div className="section-header">
         <div>
           <img alt="BackTalk" className="auth-brand-logo" src={homeLogo} />
-          <h2>{mode === 'login' ? 'Sign in' : 'Create account'}</h2>
+          <h2>{getAuthTitle(mode)}</h2>
         </div>
       </div>
 
@@ -143,17 +236,31 @@ export function AuthPanel({ initialMode = 'login' }: AuthPanelProps) {
                 className="button ghost"
                 disabled={activeAction !== null}
                 onClick={() => {
-                  setError(null);
-                  setInfo(null);
+                  clearFeedback();
                   setMode('register');
                 }}
                 type="button"
               >
                 Create account
               </button>
+              <button
+                className="button ghost"
+                disabled={activeAction !== null}
+                onClick={() => {
+                  clearFeedback();
+                  if (identifier.trim().includes('@')) {
+                    setEmail(identifier.trim());
+                  }
+                  setPassword('');
+                  setMode('forgot');
+                }}
+                type="button"
+              >
+                Forgot password?
+              </button>
             </div>
           </>
-        ) : (
+        ) : mode === 'register' ? (
           <>
             <div className="field-grid two-up">
               <div className="field">
@@ -233,13 +340,93 @@ export function AuthPanel({ initialMode = 'login' }: AuthPanelProps) {
                 className="button ghost"
                 disabled={activeAction !== null}
                 onClick={() => {
-                  setError(null);
-                  setInfo(null);
+                  clearFeedback();
                   setMode('login');
                 }}
                 type="button"
               >
                 Back to sign in
+              </button>
+            </div>
+          </>
+        ) : mode === 'forgot' ? (
+          <>
+            <div className="field">
+              <label htmlFor="authResetEmail">Email address</label>
+              <input
+                id="authResetEmail"
+                autoComplete="email"
+                onChange={(event) => setEmail(event.target.value)}
+                placeholder="you@example.com"
+                type="email"
+                value={email}
+              />
+            </div>
+
+            <div className="button-row auth-actions">
+              <button
+                className="button primary"
+                disabled={!email.trim() || activeAction !== null}
+                onClick={() => {
+                  void handlePasswordResetRequest();
+                }}
+                type="button"
+              >
+                {activeAction === 'reset-request' ? 'Sending...' : 'Send reset link'}
+              </button>
+              <button
+                className="button ghost"
+                disabled={activeAction !== null}
+                onClick={() => {
+                  clearFeedback();
+                  setMode('login');
+                }}
+                type="button"
+              >
+                Back to sign in
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="field-grid two-up">
+              <div className="field">
+                <label htmlFor="authRecoveredPassword">New password</label>
+                <input
+                  id="authRecoveredPassword"
+                  autoComplete="new-password"
+                  onChange={(event) => setPassword(event.target.value)}
+                  placeholder="At least 6 characters"
+                  type="password"
+                  value={password}
+                />
+              </div>
+
+              <div className="field">
+                <label htmlFor="authRecoveredConfirmPassword">Repeat password</label>
+                <input
+                  id="authRecoveredConfirmPassword"
+                  autoComplete="new-password"
+                  onChange={(event) => setConfirmPassword(event.target.value)}
+                  placeholder="Type it again"
+                  type="password"
+                  value={confirmPassword}
+                />
+              </div>
+            </div>
+
+            <div className="button-row auth-actions">
+              <button
+                className="button primary"
+                disabled={
+                  !password.trim() || !confirmPassword.trim() || activeAction !== null
+                }
+                onClick={() => {
+                  void handleRecoveredPasswordUpdate();
+                }}
+                type="button"
+              >
+                {activeAction === 'password-update' ? 'Updating...' : 'Update password'}
               </button>
             </div>
           </>

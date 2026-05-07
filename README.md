@@ -26,6 +26,7 @@ The app now supports:
 
    - If you want instant local testing, turn off email confirmation.
    - If you keep email confirmation on, make sure the app URL is in `Authentication > URL Configuration`.
+   - Password reset links use the same redirect allow-list. Add the production app URL, `http://localhost:5173/`, and any HTTPS device-testing URL you use on your LAN.
 
 4. Apply the migrations:
 
@@ -67,6 +68,9 @@ Use the offline generator to create themed packs from a local word list and push
 - Supabase does support OAuth providers like Google, GitHub, Apple, and others.
 - This app is wired for email/password accounts because friend requests target exact email addresses.
 - You can still enable OAuth later, but you should make sure the provider returns a verified email address if you want the friend-request flow to stay email-based.
+- Forgotten-password requests call Supabase Auth's password recovery flow. Supabase sends the reset email using the project's configured auth email provider.
+- For local Supabase CLI testing, run `supabase status` and open the Mailpit URL to inspect password reset emails.
+- Hosted projects can use Supabase's default email sender for light testing, but production should configure custom SMTP for reliable delivery and higher limits.
 
 ## What The Migration Creates
 

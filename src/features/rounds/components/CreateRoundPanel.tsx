@@ -5,6 +5,7 @@ import { ToggleRecordButton } from '../../../components/ToggleRecordButton';
 import { WaveformLoader } from '../../../components/WaveformLoader';
 import { createRoundRecord } from '../../../lib/rounds';
 import { difficultyMultiplier } from '../../../lib/rounds';
+import { maxRoundReactionLength } from '../../../lib/rounds';
 import type { Friend } from '../../social/types';
 import type { Round } from '../types';
 import { useResourceWallet } from '../../resources/ResourceProvider';
@@ -126,6 +127,8 @@ export function CreateRoundPanel({
   const [packRefreshToken, setPackRefreshToken] = useState(0);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [isReactionFieldOpen, setIsReactionFieldOpen] = useState(false);
+  const [reactionMessage, setReactionMessage] = useState('');
 
   useEffect(() => {
     let cancelled = false;
@@ -227,6 +230,7 @@ export function CreateRoundPanel({
         correctPhrase: selectedOption.text,
         difficulty: selectedOption.displayDifficulty,
         originalAudioBlob: recorder.audioBlob,
+        reactionMessage,
       });
 
       onCreateRound(nextRound);
@@ -467,6 +471,49 @@ export function CreateRoundPanel({
               }
               blob={recorder.audioBlob}
             />
+
+            {recorder.audioBlob ? (
+              <div className="round-reaction-create">
+                {!isReactionFieldOpen ? (
+                  <button
+                    className="button comment"
+                    disabled={isSaving}
+                    onClick={() => setIsReactionFieldOpen(true)}
+                    type="button"
+                  >
+                    Add Comment
+                  </button>
+                ) : (
+                  <div className="round-reaction-composer round-reaction-composer-light">
+                    <div className="field">
+                      <label htmlFor="senderReaction">Comment for {friend.username}</label>
+                      <textarea
+                        id="senderReaction"
+                        disabled={isSaving}
+                        maxLength={maxRoundReactionLength}
+                        onChange={(event) => setReactionMessage(event.target.value)}
+                        placeholder="Type a message to show with the reward."
+                        rows={3}
+                        value={reactionMessage}
+                      />
+                    </div>
+                    <div className="round-reaction-composer-footer">
+                      <span>
+                        {reactionMessage.length}/{maxRoundReactionLength}
+                      </span>
+                      <button
+                        className="button ghost"
+                        disabled={isSaving}
+                        onClick={() => setIsReactionFieldOpen(false)}
+                        type="button"
+                      >
+                        Hide
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : null}
           </div>
         ) : null}
       </div>

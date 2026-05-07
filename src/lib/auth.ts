@@ -164,6 +164,46 @@ export async function signInWithIdentifier(credentials: SignInCredentials) {
   }
 }
 
+function isAccountLookupResetError(message: string) {
+  const normalizedMessage = message.trim().toLowerCase();
+
+  return (
+    normalizedMessage.includes('user not found') ||
+    normalizedMessage.includes('email not found') ||
+    normalizedMessage.includes('not found')
+  );
+}
+
+export async function requestPasswordReset(email: string) {
+  const client = requireSupabase();
+  const normalizedEmail = normalizeEmail(email);
+
+  if (!normalizedEmail) {
+    throw new Error('Enter your email address.');
+  }
+
+  const { error } = await client.auth.resetPasswordForEmail(normalizedEmail, {
+    redirectTo: buildEmailRedirectUrl(),
+  });
+
+  if (error) {
+    if (isAccountLookupResetError(error.message)) {
+      return;
+    }
+
+    throw new Error(`Unable to send the reset email: ${error.message}`);
+  }
+}
+
+export async function updateRecoveredPassword(password: string) {
+  const client = requireSupabase();
+  const { error } = await client.auth.updateUser({ password });
+
+  if (error) {
+    throw new Error(`Unable to update your password: ${error.message}`);
+  }
+}
+
 export async function signOut() {
   const client = requireSupabase();
   const { error } = await client.auth.signOut();
