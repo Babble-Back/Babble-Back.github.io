@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { WaveformLoader } from '../../../components/WaveformLoader';
+import { getActiveCampaignHome } from '../../../lib/campaigns';
 import {
   listMonthlyFriendMatchLeaderboards,
   type FriendMatchLeaderboardEntry,
@@ -14,6 +15,7 @@ interface FriendMatchLeaderboardsModalProps {
 interface LeaderboardSectionDefinition {
   description: string;
   emptyMessage: string;
+  icon: string;
   key: FriendMatchLeaderboardKey;
   title: string;
 }
@@ -22,30 +24,35 @@ const LEADERBOARD_SECTIONS: LeaderboardSectionDefinition[] = [
   {
     key: 'best_team_coins',
     title: 'Best Team',
+    icon: 'trophy',
     description: 'Most BB Coins earned together this month.',
     emptyMessage: 'No friend-match coin earnings are on the board yet this month.',
   },
   {
     key: 'best_event_team',
     title: 'Best Event Team',
+    icon: 'campaign',
     description: 'Most current campaign items earned from your games together this month.',
     emptyMessage: 'No current campaign item drops from friend matches yet this month.',
   },
   {
     key: 'best_speaker',
     title: 'Best Speaker',
+    icon: 'microphone',
     description: 'Highest average stars as the player sending the phrase.',
     emptyMessage: 'No speaker scores are available yet this month.',
   },
   {
     key: 'best_babbler',
     title: 'Best Babbler',
+    icon: 'chat',
     description: 'Highest average stars as the player babbling and guessing.',
     emptyMessage: 'No babbler scores are available yet this month.',
   },
   {
     key: 'best_three_star_streak',
     title: 'Longest 3-Star Streak',
+    icon: 'fire',
     description: 'Longest run of perfect rounds in a single friend thread this month.',
     emptyMessage: 'No 3-star streaks have started yet this month.',
   },
@@ -102,6 +109,105 @@ function formatEntryName(entry: FriendMatchLeaderboardEntry) {
   return `${entry.primaryUsername} + ${entry.secondaryUsername}`;
 }
 
+function getRankClass(rank: number) {
+  if (rank === 1) {
+    return 'gold';
+  }
+
+  if (rank === 2) {
+    return 'silver';
+  }
+
+  if (rank === 3) {
+    return 'bronze';
+  }
+
+  return 'standard';
+}
+
+function getRankLabel(rank: number) {
+  return rank <= 3 ? `#${rank}` : `${rank}`;
+}
+
+function LeaderboardIcon({
+  campaignIconUrl,
+  section,
+}: {
+  campaignIconUrl: string | null;
+  section: LeaderboardSectionDefinition;
+}) {
+  if (section.key === 'best_team_coins') {
+    return (
+      <span
+        aria-hidden="true"
+        className="friend-match-leaderboard-icon image-icon coin-icon-bubble"
+      >
+        <img alt="" src={`${import.meta.env.BASE_URL}bbcoin.png`} />
+      </span>
+    );
+  }
+
+  if (section.key === 'best_event_team' && campaignIconUrl) {
+    return (
+      <span
+        aria-hidden="true"
+        className="friend-match-leaderboard-icon image-icon campaign-icon-bubble"
+      >
+        <img alt="" src={campaignIconUrl} />
+      </span>
+    );
+  }
+
+  const iconByType: Record<string, string> = {
+    campaign: '⭐',
+    chat: '💬',
+    fire: '🔥',
+    microphone: '🎤',
+    trophy: '🏆',
+  };
+
+  return (
+    <span
+      aria-hidden="true"
+      className={`friend-match-leaderboard-icon emoji-icon ${section.icon}`}
+    >
+      {iconByType[section.icon] ?? '⭐'}
+    </span>
+  );
+}
+
+function MetricBadge({
+  campaignIconUrl,
+  entry,
+  leaderboardKey,
+}: {
+  campaignIconUrl: string | null;
+  entry: FriendMatchLeaderboardEntry;
+  leaderboardKey: FriendMatchLeaderboardKey;
+}) {
+  const metricLabel = formatMetric(entry, leaderboardKey);
+
+  if (leaderboardKey === 'best_team_coins') {
+    return (
+      <strong className="friend-match-leaderboard-metric with-asset">
+        <img alt="" aria-hidden="true" src={`${import.meta.env.BASE_URL}bbcoin.png`} />
+        <span>{metricLabel}</span>
+      </strong>
+    );
+  }
+
+  if (leaderboardKey === 'best_event_team' && campaignIconUrl) {
+    return (
+      <strong className="friend-match-leaderboard-metric with-asset">
+        <img alt="" aria-hidden="true" src={campaignIconUrl} />
+        <span>{metricLabel}</span>
+      </strong>
+    );
+  }
+
+  return <strong className="friend-match-leaderboard-metric">{metricLabel}</strong>;
+}
+
 export function FriendMatchLeaderboardsModal({
   isOpen,
   onClose,
@@ -110,6 +216,7 @@ export function FriendMatchLeaderboardsModal({
     LEADERBOARD_SECTIONS[0].key,
   );
   const [entries, setEntries] = useState<FriendMatchLeaderboardEntry[]>([]);
+  const [campaignIconUrl, setCampaignIconUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -163,6 +270,34 @@ export function FriendMatchLeaderboardsModal({
       return;
     }
 
+    let cancelled = false;
+
+    const loadCampaignIcon = async () => {
+      try {
+        const campaignHome = await getActiveCampaignHome();
+
+        if (!cancelled) {
+          setCampaignIconUrl(campaignHome.challengeIcon);
+        }
+      } catch {
+        if (!cancelled) {
+          setCampaignIconUrl(null);
+        }
+      }
+    };
+
+    void loadCampaignIcon();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+
     setActiveSectionKey(LEADERBOARD_SECTIONS[0].key);
   }, [isOpen]);
 
@@ -203,17 +338,27 @@ export function FriendMatchLeaderboardsModal({
     >
       <div
         aria-modal="true"
-        className="campaign-leaderboard-modal friend-match-leaderboards-modal"
+        className="campaign-leaderboard-modal friend-match-leaderboards-modal playful-leaderboards-modal"
         onClick={(event) => event.stopPropagation()}
         role="dialog"
       >
-        <div className="campaign-leaderboard-header">
+        <div className="friend-match-leaderboard-hero" aria-hidden="true">
+          <span className="leaderboard-confetti star-one">✦</span>
+          <span className="leaderboard-confetti dot-one" />
+          <span className="leaderboard-confetti dash-one" />
+          <span className="leaderboard-confetti dash-two" />
+          <span className="leaderboard-confetti trophy">🏆</span>
+          <h2>Leaderboards</h2>
+        </div>
+
+        <div className="campaign-leaderboard-header friend-match-leaderboard-header">
           <div>
-            <div className="eyebrow">Leaderboards</div>
+            <div className="eyebrow playful-eyebrow">Leaderboards</div>
             <h3>{monthRange.label}</h3>
             <p>Global monthly friend-match standings. These reset every month.</p>
           </div>
-          <button className="button ghost" onClick={onClose} type="button">
+          <button className="button ghost friend-match-leaderboard-close" onClick={onClose} type="button">
+            <span aria-hidden="true">×</span>
             Close
           </button>
         </div>
@@ -247,7 +392,8 @@ export function FriendMatchLeaderboardsModal({
                   role="tab"
                   type="button"
                 >
-                  {section.title}
+                  <LeaderboardIcon campaignIconUrl={campaignIconUrl} section={section} />
+                  <span>{section.title}</span>
                 </button>
               ))}
             </div>
@@ -260,7 +406,10 @@ export function FriendMatchLeaderboardsModal({
             >
               <div className="friend-match-leaderboard-card-header">
                 <div>
-                  <div className="eyebrow">{activeSection.title}</div>
+                  <div className="eyebrow playful-eyebrow">
+                    {activeSection.title}
+                    <LeaderboardIcon campaignIconUrl={campaignIconUrl} section={activeSection} />
+                  </div>
                   <h4>{activeSection.description}</h4>
                 </div>
               </div>
@@ -273,18 +422,22 @@ export function FriendMatchLeaderboardsModal({
                 <div className="campaign-leaderboard-list" role="list">
                   {activeEntries.map((entry) => (
                     <div
-                      className="campaign-leaderboard-row friend-match-leaderboard-row"
+                      className={`campaign-leaderboard-row friend-match-leaderboard-row rank-${getRankClass(entry.rank)}`}
                       key={`${activeSection.key}-${entry.rank}-${entry.primaryUserId}-${entry.secondaryUserId ?? 'solo'}`}
                       role="listitem"
                     >
-                      <span className="campaign-leaderboard-rank">#{entry.rank}</span>
+                      <span className="campaign-leaderboard-rank friend-match-leaderboard-rank">
+                        {getRankLabel(entry.rank)}
+                      </span>
                       <div className="friend-match-leaderboard-copy">
                         <strong>{formatEntryName(entry)}</strong>
                         <span>{formatSample(entry, activeSection.key)}</span>
                       </div>
-                      <strong className="friend-match-leaderboard-metric">
-                        {formatMetric(entry, activeSection.key)}
-                      </strong>
+                      <MetricBadge
+                        campaignIconUrl={campaignIconUrl}
+                        entry={entry}
+                        leaderboardKey={activeSection.key}
+                      />
                     </div>
                   ))}
                 </div>
@@ -294,7 +447,7 @@ export function FriendMatchLeaderboardsModal({
         )}
 
         <p className="friend-match-leaderboard-note">
-          Older rounds archived before leaderboard tracking was added may not appear here yet.
+          <span aria-hidden="true">🏆</span> Keep playing. Keep winning!
         </p>
       </div>
     </div>
