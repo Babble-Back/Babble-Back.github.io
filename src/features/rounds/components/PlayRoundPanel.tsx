@@ -13,6 +13,7 @@ import {
   type CampaignCatalogEntry,
 } from '../../../lib/campaigns';
 import { claimReward, getRoundReward } from '../../../lib/roundRewards';
+import { listWordPacks, type WordPack } from '../../../lib/wordPacks';
 import {
   consumeRoundListen,
   extraListenCost,
@@ -325,6 +326,62 @@ function RoundReactionComposer({
   );
 }
 
+function formatDifficultyLabel(difficulty: Round['difficulty']) {
+  return difficulty.charAt(0).toUpperCase() + difficulty.slice(1);
+}
+
+function getPackInitials(packName: string) {
+  const initials = packName
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() ?? '')
+    .join('');
+
+  return initials || 'WP';
+}
+
+function RoundPromptMetadata({
+  difficulty,
+  iconUrl,
+  packName,
+}: {
+  difficulty: Round['difficulty'];
+  iconUrl: string | null;
+  packName: string;
+}) {
+  const [didIconFail, setDidIconFail] = useState(false);
+  const normalizedPackName = packName.trim() || 'Word pack';
+  const shouldShowImage = Boolean(iconUrl) && !didIconFail;
+
+  useEffect(() => {
+    setDidIconFail(false);
+  }, [iconUrl]);
+
+  return (
+    <aside className="round-prompt-meta-card" aria-label="Round prompt details">
+      <span className="round-prompt-pack-icon" aria-hidden="true">
+        {shouldShowImage && iconUrl ? (
+          <img
+            alt=""
+            onError={() => setDidIconFail(true)}
+            src={iconUrl}
+          />
+        ) : (
+          <span>{getPackInitials(normalizedPackName)}</span>
+        )}
+      </span>
+      <span className="round-prompt-meta-copy">
+        <span className="round-prompt-meta-label">Word pack</span>
+        <strong className="round-prompt-meta-name">{normalizedPackName}</strong>
+      </span>
+      <span className={`badge ${difficulty} round-prompt-difficulty`}>
+        {formatDifficultyLabel(difficulty)}
+      </span>
+    </aside>
+  );
+}
+
 export function PlayRoundPanel({
   currentUserId,
   isLoadingRound = false,
@@ -354,6 +411,7 @@ export function PlayRoundPanel({
   const [isClaimingReward, setIsClaimingReward] = useState(false);
   const [roundReward, setRoundReward] = useState<RoundReward | null>(null);
   const [campaignCatalog, setCampaignCatalog] = useState<CampaignCatalogEntry[]>([]);
+  const [wordPacks, setWordPacks] = useState<WordPack[]>([]);
   const [listenState, setListenState] = useState<RoundListenState | null>(null);
   const [isLoadingListenState, setIsLoadingListenState] = useState(false);
   const [isAuthorizingListenPlayback, setIsAuthorizingListenPlayback] = useState(false);
@@ -411,6 +469,30 @@ export function PlayRoundPanel({
     };
 
     void loadCampaigns();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadWordPackMetadata = async () => {
+      try {
+        const nextWordPacks = await listWordPacks();
+
+        if (!cancelled) {
+          setWordPacks(nextWordPacks);
+        }
+      } catch (packError) {
+        if (!cancelled) {
+          console.warn('Unable to load word pack metadata for round details.', packError);
+        }
+      }
+    };
+
+    void loadWordPackMetadata();
 
     return () => {
       cancelled = true;
@@ -517,6 +599,13 @@ export function PlayRoundPanel({
       }) ?? null
     );
   }, [campaignCatalog, round?.packId, roundReward?.bonusResourceType, roundReward?.campaignId]);
+  const activeWordPack = useMemo(() => {
+    if (!round?.packId) {
+      return null;
+    }
+
+    return wordPacks.find((pack) => pack.id === round.packId) ?? null;
+  }, [round?.packId, wordPacks]);
   const rewardCampaignCurrency = rewardCampaignEntry?.currency ?? null;
   const rewardCampaignIcon = rewardCampaignEntry?.assets.challenge_icon ?? null;
 
@@ -1015,6 +1104,9 @@ export function PlayRoundPanel({
 
   const activeRound = round;
   const showRewardPage = activeRound.status === 'complete';
+  const roundPromptPackName = activeWordPack?.name ?? 'Word pack';
+  const roundPromptPackIconUrl =
+    activeWordPack?.campaignCurrency?.iconUrl ?? rewardCampaignIcon;
   const isSenderRewardPage = showRewardPage && !isRecipient;
   const senderReactionMessage = activeRound.senderReactionMessage?.trim() || null;
   const recipientReactionMessage = activeRound.recipientReactionMessage?.trim() || null;
@@ -1320,6 +1412,12 @@ export function PlayRoundPanel({
         <div className="round-screen-body">
           {recipientStage === 'listen' ? (
             <div className="round-screen-step">
+              <RoundPromptMetadata
+                difficulty={activeRound.difficulty}
+                iconUrl={roundPromptPackIconUrl}
+                packName={roundPromptPackName}
+              />
+
               <AudioPlayerCard
                 title="Reversed prompt"
                 description={`You get ${formatListenLabel(effectiveFreeListenLimit)} for free. Extra replays cost ${nextListenReplayCost} BB Coins each.`}
