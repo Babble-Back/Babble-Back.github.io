@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type FormEvent,
+} from 'react';
 import { useObjectUrl } from '../../../audio/hooks/useObjectUrl';
 import { useReversedAudio } from '../../../audio/hooks/useReversedAudio';
 import { useAudioRecorder } from '../../../audio/hooks/useAudioRecorder';
@@ -114,8 +122,220 @@ function clearRewardAnimationState(userId: string, roundId: string) {
   window.sessionStorage.removeItem(getRewardAnimationStorageKey(userId, roundId));
 }
 
-function formatListenLabel(count: number) {
-  return `${count} listen${count === 1 ? '' : 's'}`;
+function formatFreeListenLabel(count: number) {
+  return `${count} free listen${count === 1 ? '' : 's'}`;
+}
+
+interface Point {
+  x: number;
+  y: number;
+}
+
+interface ListenSpendAnimation {
+  amount: number;
+  id: number;
+}
+
+interface SpendParticleSpec {
+  id: string;
+  delay: number;
+  duration: number;
+  size: number;
+  lift: number;
+  sourceOffsetX: number;
+  sourceOffsetY: number;
+  endOffsetX: number;
+  endOffsetY: number;
+  spin: number;
+}
+
+interface SpendParticleRender {
+  id: string;
+  style: CSSProperties;
+}
+
+const LISTEN_SPEND_STREAM_DURATION_MS = 920;
+
+function clampUnit(value: number) {
+  return Math.min(1, Math.max(0, value));
+}
+
+function easeInOutCubic(value: number) {
+  const clampedValue = clampUnit(value);
+
+  return clampedValue < 0.5
+    ? 4 * clampedValue * clampedValue * clampedValue
+    : 1 - Math.pow(-2 * clampedValue + 2, 3) / 2;
+}
+
+function quadraticBezier(start: number, control: number, end: number, progress: number) {
+  const inverseProgress = 1 - progress;
+  return (
+    inverseProgress * inverseProgress * start +
+    2 * inverseProgress * progress * control +
+    progress * progress * end
+  );
+}
+
+function getCenterPoint(element: HTMLElement | null): Point | null {
+  if (!element) {
+    return null;
+  }
+
+  const rect = element.getBoundingClientRect();
+
+  return {
+    x: rect.left + rect.width / 2,
+    y: rect.top + rect.height / 2,
+  };
+}
+
+function getCoinDisplaySourcePoint() {
+  const exactTarget = document.querySelector<HTMLElement>('[data-coin-display-target="true"]');
+
+  if (exactTarget) {
+    return getCenterPoint(exactTarget);
+  }
+
+  const fallbackTarget = document.querySelector<HTMLElement>('[data-coin-display="true"]');
+  return getCenterPoint(fallbackTarget);
+}
+
+function getListenPlaybackTargetPoint() {
+  const exactTarget = document.querySelector<HTMLElement>('[data-round-listen-play-target="true"]');
+  return getCenterPoint(exactTarget);
+}
+
+function createSpendParticleSpecs(amount: number) {
+  const count = Math.max(3, Math.min(8, Math.round(amount) || extraListenCost));
+  const centerIndex = (count - 1) / 2;
+
+  return Array.from({ length: count }, (_, index): SpendParticleSpec => ({
+    id: `listen-spend-particle-${index}`,
+    delay: index * 58,
+    duration: 500 + (index % 3) * 46,
+    size: 19 + (index % 2) * 4,
+    lift: 56 + (index % 4) * 12,
+    sourceOffsetX: (index - centerIndex) * 4,
+    sourceOffsetY: (index % 2 === 0 ? -1 : 1) * 4,
+    endOffsetX: (index % 3 - 1) * 14,
+    endOffsetY: (index % 2 === 0 ? -1 : 1) * 10,
+    spin: (index % 2 === 0 ? -1 : 1) * (120 + index * 24),
+  }));
+}
+
+function RoundListenSpendStream({
+  amount,
+  animationId,
+  onComplete,
+}: {
+  amount: number;
+  animationId: number;
+  onComplete: (animationId: number) => void;
+}) {
+  const [elapsedMs, setElapsedMs] = useState(0);
+  const [sourcePoint, setSourcePoint] = useState<Point | null>(null);
+  const [targetPoint, setTargetPoint] = useState<Point | null>(null);
+  const hasCompletedAnimationRef = useRef(false);
+  const particles = useMemo(() => createSpendParticleSpecs(amount), [amount]);
+
+  useEffect(() => {
+    hasCompletedAnimationRef.current = false;
+    setElapsedMs(0);
+    setSourcePoint(getCoinDisplaySourcePoint());
+    setTargetPoint(getListenPlaybackTargetPoint());
+  }, [animationId]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    let animationFrameId = 0;
+    let startTimeMs = 0;
+
+    const animate = (timestampMs: number) => {
+      if (!startTimeMs) {
+        startTimeMs = timestampMs;
+      }
+
+      const nextElapsedMs = Math.min(timestampMs - startTimeMs, LISTEN_SPEND_STREAM_DURATION_MS);
+      setElapsedMs(nextElapsedMs);
+
+      if (nextElapsedMs < LISTEN_SPEND_STREAM_DURATION_MS) {
+        animationFrameId = window.requestAnimationFrame(animate);
+      }
+    };
+
+    animationFrameId = window.requestAnimationFrame(animate);
+
+    return () => {
+      window.cancelAnimationFrame(animationFrameId);
+    };
+  }, [animationId]);
+
+  useEffect(() => {
+    if (elapsedMs < LISTEN_SPEND_STREAM_DURATION_MS || hasCompletedAnimationRef.current) {
+      return;
+    }
+
+    hasCompletedAnimationRef.current = true;
+    onComplete(animationId);
+  }, [animationId, elapsedMs, onComplete]);
+
+  const particleStyles = useMemo<SpendParticleRender[]>(() => {
+    if (!sourcePoint || !targetPoint) {
+      return [];
+    }
+
+    return particles.reduce<SpendParticleRender[]>((result, particle) => {
+      const progress = clampUnit((elapsedMs - particle.delay) / particle.duration);
+
+      if (progress <= 0) {
+        return result;
+      }
+
+      const easedProgress = easeInOutCubic(progress);
+      const startX = sourcePoint.x + particle.sourceOffsetX;
+      const startY = sourcePoint.y + particle.sourceOffsetY;
+      const endX = targetPoint.x + particle.endOffsetX;
+      const endY = targetPoint.y + particle.endOffsetY;
+      const controlX = (startX + endX) / 2 + (startX > endX ? -36 : 36);
+      const controlY = Math.min(startY, endY) - particle.lift;
+      const x = quadraticBezier(startX, controlX, endX, easedProgress);
+      const y = quadraticBezier(startY, controlY, endY, easedProgress);
+      const fadeIn = clampUnit(progress / 0.16);
+      const fadeOut = progress > 0.84 ? 1 - (progress - 0.84) / 0.16 : 1;
+      const scale = 0.76 + Math.sin(progress * Math.PI) * 0.28;
+
+      result.push({
+        id: particle.id,
+        style: {
+          width: `${particle.size}px`,
+          height: `${particle.size}px`,
+          opacity: fadeIn * fadeOut,
+          transform: `translate(${x - particle.size / 2}px, ${y - particle.size / 2}px) scale(${scale}) rotate(${particle.spin * easedProgress}deg)`,
+        },
+      });
+
+      return result;
+    }, []);
+  }, [elapsedMs, particles, sourcePoint, targetPoint]);
+
+  return (
+    <>
+      {particleStyles.map((particle) => (
+        <img
+          alt=""
+          aria-hidden="true"
+          className="round-listen-spend-coin"
+          key={particle.id}
+          src={`${import.meta.env.BASE_URL}bbcoin.png`}
+          style={particle.style}
+        />
+      ))}
+    </>
+  );
 }
 
 function logRewardDebug(message: string, details?: Record<string, unknown>) {
@@ -382,6 +602,74 @@ function RoundPromptMetadata({
   );
 }
 
+function RoundListenAudioCard({
+  blob,
+  coinSpendAnimation,
+  isPaidReplay = false,
+  isLoading = false,
+  loadingLabel = 'Preparing audio...',
+  onCoinSpendAnimationComplete,
+  onPlayRequest,
+  playButtonDisabled = false,
+  statusLabel,
+  title,
+}: {
+  blob?: Blob | null;
+  coinSpendAnimation?: ListenSpendAnimation | null;
+  isPaidReplay?: boolean;
+  isLoading?: boolean;
+  loadingLabel?: string;
+  onCoinSpendAnimationComplete?: (animationId: number) => void;
+  onPlayRequest?: (playbackStartKind: PlaybackStartKind) => boolean | void | Promise<boolean | void>;
+  playButtonDisabled?: boolean;
+  statusLabel: string;
+  title: string;
+}) {
+  const objectUrl = useObjectUrl(blob);
+
+  return (
+    <article className="round-listen-audio-card">
+      <h3>{title}</h3>
+      {objectUrl ? (
+        <div className="round-listen-player-wrap" data-round-listen-play-target="true">
+          <WaveformPlayButton
+            className="round-listen-play-button"
+            disabled={playButtonDisabled}
+            onPlayRequest={onPlayRequest}
+            size={152}
+            src={objectUrl}
+            strokeWidth={5}
+          />
+          {coinSpendAnimation && onCoinSpendAnimationComplete ? (
+            <RoundListenSpendStream
+              amount={coinSpendAnimation.amount}
+              animationId={coinSpendAnimation.id}
+              onComplete={onCoinSpendAnimationComplete}
+            />
+          ) : null}
+        </div>
+      ) : (
+        <div className="round-listen-audio-loading">
+          <WaveformLoader className="round-listen-audio-spinner" size={112} strokeWidth={4} />
+          <span>{isLoading ? loadingLabel : 'No audio available yet.'}</span>
+        </div>
+      )}
+      <div className="round-listen-free-listens" aria-live="polite">
+        <span aria-hidden="true">🎧</span>
+        {isPaidReplay ? (
+          <strong className="round-listen-paid-replay">
+            <span>{statusLabel}</span>
+            <img alt="BB Coin" src={`${import.meta.env.BASE_URL}bbcoin.png`} />
+            <span>per replay</span>
+          </strong>
+        ) : (
+          <strong>{statusLabel}</strong>
+        )}
+      </div>
+    </article>
+  );
+}
+
 export function PlayRoundPanel({
   currentUserId,
   isLoadingRound = false,
@@ -415,6 +703,8 @@ export function PlayRoundPanel({
   const [listenState, setListenState] = useState<RoundListenState | null>(null);
   const [isLoadingListenState, setIsLoadingListenState] = useState(false);
   const [isAuthorizingListenPlayback, setIsAuthorizingListenPlayback] = useState(false);
+  const [listenSpendAnimation, setListenSpendAnimation] =
+    useState<ListenSpendAnimation | null>(null);
   const [hasConfirmedListen, setHasConfirmedListen] = useState(false);
   const [isReactionComposerOpen, setIsReactionComposerOpen] = useState(false);
   const [reactionDraft, setReactionDraft] = useState('');
@@ -422,6 +712,7 @@ export function PlayRoundPanel({
   const lastSavedAttemptBlobRef = useRef<Blob | null>(null);
   const rewardBaseCoinsRef = useRef(0);
   const loadedRewardRoundIdRef = useRef<string | null>(null);
+  const listenSpendAnimationIdRef = useRef(0);
 
   useEffect(() => {
     setGuess(round?.guess ?? '');
@@ -437,6 +728,7 @@ export function PlayRoundPanel({
     setListenState(null);
     setIsLoadingListenState(false);
     setIsAuthorizingListenPlayback(false);
+    setListenSpendAnimation(null);
     setIsReactionComposerOpen(false);
     setReactionDraft(
       round?.senderId === currentUserId
@@ -539,21 +831,19 @@ export function PlayRoundPanel({
   const includedFreeListenLimit = round ? freeListenLimitByDifficulty[round.difficulty] : 0;
   const effectiveFreeListenLimit = listenState?.freeLimit ?? includedFreeListenLimit;
   const listenUsageCount = listenState?.listenCount ?? 0;
-  const paidListenCount =
-    listenState?.paidListenCount ?? Math.max(0, listenUsageCount - effectiveFreeListenLimit);
   const freeListenCountRemaining = Math.max(0, effectiveFreeListenLimit - listenUsageCount);
   const nextListenReplayCost = listenState?.nextPlayCost ?? extraListenCost;
-  const listenPlaybackHelperText = !round
-    ? ''
-    : isLoadingReversedPrompt
-      ? 'Preparing the reversed prompt from the saved recording.'
+  const listenStatusLabel =
+    isAuthorizingListenPlayback
+      ? 'Authorizing replay'
       : isLoadingListenState
-      ? 'Checking your free replay limit.'
-      : freeListenCountRemaining > 0
-        ? `${formatListenLabel(freeListenCountRemaining)} free out of ${formatListenLabel(effectiveFreeListenLimit)} remaining. Extra replays cost ${nextListenReplayCost} BB Coins each.`
-        : paidListenCount > 0
-          ? `Free listens are used up. You have already bought ${formatListenLabel(paidListenCount)}. Each new replay costs ${nextListenReplayCost} BB Coins.`
-          : `Free listens are used up. Each new replay costs ${nextListenReplayCost} BB Coins.`;
+        ? 'Checking listens'
+        : freeListenCountRemaining > 0
+          ? formatFreeListenLabel(freeListenCountRemaining)
+          : `${nextListenReplayCost}`;
+  const isPaidListenReplay = !isAuthorizingListenPlayback &&
+    !isLoadingListenState &&
+    freeListenCountRemaining <= 0;
 
   const canSubmitGuess = useMemo(
     () =>
@@ -994,6 +1284,16 @@ export function PlayRoundPanel({
     }
   };
 
+  const handleListenSpendAnimationComplete = useCallback(
+    (animationId: number) => {
+      setListenSpendAnimation((currentAnimation) =>
+        currentAnimation?.id === animationId ? null : currentAnimation,
+      );
+      setCoinPreview(null);
+    },
+    [setCoinPreview],
+  );
+
   const handleListenPlaybackRequest = useCallback(
     async (playbackStartKind: PlaybackStartKind) => {
       if (playbackStartKind === 'resume') {
@@ -1008,10 +1308,23 @@ export function PlayRoundPanel({
       setIsAuthorizingListenPlayback(true);
 
       try {
+        const previousBalance = listenState?.currentBalance ?? coins;
         const nextListenState = await consumeRoundListen(round.id);
+        const chargedAmount = Math.max(0, previousBalance - nextListenState.currentBalance);
         setListenState(nextListenState);
         setCoinBalance(nextListenState.currentBalance);
-        setCoinPreview(null);
+
+        if (nextListenState.charged) {
+          listenSpendAnimationIdRef.current += 1;
+          setCoinPreview(previousBalance);
+          setListenSpendAnimation({
+            amount: chargedAmount || nextListenReplayCost,
+            id: listenSpendAnimationIdRef.current,
+          });
+        } else {
+          setCoinPreview(null);
+          setListenSpendAnimation(null);
+        }
 
         return true;
       } catch (caughtError) {
@@ -1025,7 +1338,7 @@ export function PlayRoundPanel({
         setIsAuthorizingListenPlayback(false);
       }
     },
-    [currentUserId, round, setCoinBalance, setCoinPreview],
+    [coins, currentUserId, listenState?.currentBalance, nextListenReplayCost, round, setCoinBalance, setCoinPreview],
   );
 
   if (!round) {
@@ -1104,6 +1417,7 @@ export function PlayRoundPanel({
 
   const activeRound = round;
   const showRewardPage = activeRound.status === 'complete';
+  const isRecipientListenPage = isRecipient && recipientStage === 'listen' && !showRewardPage;
   const roundPromptPackName = activeWordPack?.name ?? 'Word pack';
   const roundPromptPackIconUrl =
     activeWordPack?.campaignCurrency?.iconUrl ?? rewardCampaignIcon;
@@ -1219,9 +1533,13 @@ export function PlayRoundPanel({
     : showRewardPage
       ? 'This screen settles your BB Coin reward for the round.'
       : (roundSummary?.description ?? '');
-  const roundScreenClassName = showRewardPage ? 'round-screen round-screen-reward' : 'surface round-screen';
+  const roundScreenClassName = showRewardPage
+    ? 'round-screen round-screen-reward'
+    : `surface round-screen${isRecipientListenPage ? ' round-listen-screen' : ''}`;
 
   const handleReadyToImitate = async () => {
+    setListenSpendAnimation(null);
+    setCoinPreview(null);
     await recorder.prepareRecording();
     setHasConfirmedListen(true);
   };
@@ -1398,7 +1716,7 @@ export function PlayRoundPanel({
 
   return (
     <section className={roundScreenClassName}>
-      {!showRewardPage ? (
+      {!showRewardPage && !isRecipientListenPage ? (
         <div className="round-screen-header">
           <div className="round-screen-copy">
             <div className="eyebrow">{headerEyebrow}</div>
@@ -1418,21 +1736,18 @@ export function PlayRoundPanel({
                 packName={roundPromptPackName}
               />
 
-              <AudioPlayerCard
-                title="Reversed prompt"
-                description={`You get ${formatListenLabel(effectiveFreeListenLimit)} for free. Extra replays cost ${nextListenReplayCost} BB Coins each.`}
+              <RoundListenAudioCard
+                title={`${activeRound.senderUsername}'s reverse audio`}
+                coinSpendAnimation={listenSpendAnimation}
+                isPaidReplay={isPaidListenReplay}
+                statusLabel={listenStatusLabel}
                 blob={reversedPromptBlob}
                 isLoading={isLoadingReversedPrompt}
                 loadingLabel="Preparing reversed prompt..."
+                onCoinSpendAnimationComplete={handleListenSpendAnimationComplete}
                 onPlayRequest={handleListenPlaybackRequest}
                 playButtonDisabled={isAuthorizingListenPlayback}
               />
-
-              <div className="helper-text round-screen-helper">
-                {isAuthorizingListenPlayback
-                  ? 'Authorizing this replay and updating your BB Coin balance.'
-                  : `${listenPlaybackHelperText} Nothing else opens until you confirm you are ready to record.`}
-              </div>
             </div>
           ) : null}
 
@@ -1556,7 +1871,7 @@ export function PlayRoundPanel({
               }}
               type="button"
             >
-              Ready to imitate
+              Ready!
             </button>
           </div>
         ) : null}

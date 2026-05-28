@@ -414,6 +414,7 @@ function App() {
   const dataRefreshInFlightRef = useRef(false);
   const showSecureContextWarning =
     typeof window !== 'undefined' && !window.isSecureContext;
+  const isThreadRoute = appPath === '/' && view === 'thread';
 
   const applyRouteState = useCallback(
     (
@@ -1052,17 +1053,28 @@ function App() {
           <FullscreenLoadingScreen />
         ) : (
           <>
-            <div className="home-topbar">
-              <button
-                aria-label="Open menu"
-                className="drawer-toggle"
-                onClick={() => setIsMenuOpen(true)}
-                type="button"
-              >
-                <span />
-                <span />
-                <span />
-              </button>
+            <div className={`home-topbar${isThreadRoute ? ' is-thread-view' : ''}`}>
+              {isThreadRoute ? (
+                <button
+                  aria-label="Back to home"
+                  className="home-back-button"
+                  onClick={handleOpenHome}
+                  type="button"
+                >
+                  <span aria-hidden="true">←</span>
+                </button>
+              ) : (
+                <button
+                  aria-label="Open menu"
+                  className="drawer-toggle"
+                  onClick={() => setIsMenuOpen(true)}
+                  type="button"
+                >
+                  <span />
+                  <span />
+                  <span />
+                </button>
+              )}
               <button
                 aria-label="Go to home"
                 className="home-topbar-logo-button"
