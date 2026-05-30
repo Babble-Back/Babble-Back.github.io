@@ -4,6 +4,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type KeyboardEvent,
   type CSSProperties,
   type FormEvent,
 } from 'react';
@@ -34,7 +35,16 @@ import {
   submitRoundGuess,
 } from '../../../lib/rounds';
 import { getRoundSummary, getScorePresentation } from '../scorePresentation';
-import type { Round, RoundListenState, RoundReward } from '../types';
+import type { Round, RoundGuessEvent, RoundListenState, RoundReward } from '../types';
+import {
+  composeGuessTextFromEvents,
+  composeGuessTextFromEntries,
+  failedGuessMistakeCount,
+  getGuessTargetIndexes,
+  isGuessCharacterCorrect,
+  isGuessSpacer,
+} from '../utils';
+import { GuessPhraseGrid, GuessReplayPanel, type GuessCellMap } from './GuessPhraseGrid';
 import { RoundRewardSequence } from './RoundRewardSequence';
 
 interface PlayRoundPanelProps {
@@ -48,6 +58,13 @@ interface PlayRoundPanelProps {
 }
 
 type RecipientStage = 'listen' | 'record' | 'guess' | 'reveal';
+
+interface GuessEntry {
+  phraseIndex: number;
+  value: string;
+  correct: boolean;
+  shake?: boolean;
+}
 
 function getRecipientStage(options: {
   hasAttempt: boolean;
@@ -98,6 +115,10 @@ function getRewardAnimationStorageKey(userId: string, roundId: string) {
   return `backtalk:round-reward:${userId}:${roundId}`;
 }
 
+function getGuessPlaybackStorageKey(userId: string, roundId: string) {
+  return `backtalk:round-guess-playback:${userId}:${roundId}`;
+}
+
 function hasStartedRewardAnimation(userId: string, roundId: string) {
   if (typeof window === 'undefined') {
     return false;
@@ -112,6 +133,22 @@ function markRewardAnimationStarted(userId: string, roundId: string) {
   }
 
   window.sessionStorage.setItem(getRewardAnimationStorageKey(userId, roundId), 'started');
+}
+
+function hasCompletedGuessPlayback(userId: string, roundId: string) {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+
+  return window.sessionStorage.getItem(getGuessPlaybackStorageKey(userId, roundId)) === 'complete';
+}
+
+function markGuessPlaybackCompleted(userId: string, roundId: string) {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  window.sessionStorage.setItem(getGuessPlaybackStorageKey(userId, roundId), 'complete');
 }
 
 function clearRewardAnimationState(userId: string, roundId: string) {
@@ -688,7 +725,13 @@ export function PlayRoundPanel({
     setCoinPreview,
     setResourceBalance,
   } = useCoins();
-  const [guess, setGuess] = useState('');
+  const [guessEntries, setGuessEntries] = useState<GuessEntry[]>([]);
+  const [guessEvents, setGuessEvents] = useState<RoundGuessEvent[]>([]);
+  const [guessMistakeCount, setGuessMistakeCount] = useState(0);
+  const [guessFeedback, setGuessFeedback] = useState<GuessEntry | null>(null);
+  const [isGuessAnimating, setIsGuessAnimating] = useState(false);
+  const [isGuessLocked, setIsGuessLocked] = useState(false);
+  const [isGuessReplayComplete, setIsGuessReplayComplete] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isSavingAttempt, setIsSavingAttempt] = useState(false);
   const [isSubmittingGuess, setIsSubmittingGuess] = useState(false);
@@ -713,9 +756,29 @@ export function PlayRoundPanel({
   const rewardBaseCoinsRef = useRef(0);
   const loadedRewardRoundIdRef = useRef<string | null>(null);
   const listenSpendAnimationIdRef = useRef(0);
+  const guessInputRef = useRef<HTMLInputElement | null>(null);
+  const guessStartedAtRef = useRef<number | null>(null);
+  const isAutoSubmittingGuessRef = useRef(false);
+  const guessFeedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    setGuess(round?.guess ?? '');
+    if (guessFeedbackTimerRef.current) {
+      clearTimeout(guessFeedbackTimerRef.current);
+      guessFeedbackTimerRef.current = null;
+    }
+
+    setGuessEntries([]);
+    setGuessEvents([]);
+    setGuessMistakeCount(0);
+    setGuessFeedback(null);
+    setIsGuessAnimating(false);
+    setIsGuessLocked(round?.status === 'complete');
+    setIsGuessReplayComplete(
+      !round ||
+        round.status !== 'complete' ||
+        round.senderId !== currentUserId ||
+        hasCompletedGuessPlayback(currentUserId, round.id),
+    );
     setError(null);
     setHasConfirmedListen(false);
     recorder.clearRecording();
@@ -740,8 +803,20 @@ export function PlayRoundPanel({
     setIsSavingReaction(false);
     rewardBaseCoinsRef.current = coins;
     loadedRewardRoundIdRef.current = null;
+    guessStartedAtRef.current = null;
+    isAutoSubmittingGuessRef.current = false;
     setCoinPreview(null);
   }, [currentUserId, round?.id, round?.status, recorder.clearRecording, setCoinPreview]);
+
+  useEffect(
+    () => () => {
+      if (guessFeedbackTimerRef.current) {
+        clearTimeout(guessFeedbackTimerRef.current);
+        guessFeedbackTimerRef.current = null;
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -844,17 +919,73 @@ export function PlayRoundPanel({
   const isPaidListenReplay = !isAuthorizingListenPlayback &&
     !isLoadingListenState &&
     freeListenCountRemaining <= 0;
+  const guessTargetIndexes = useMemo(
+    () => (round ? getGuessTargetIndexes(round.correctPhrase) : []),
+    [round?.correctPhrase],
+  );
+  const guessCells = useMemo<GuessCellMap>(
+    () => {
+      const cells = guessEntries.reduce<GuessCellMap>((nextCells, entry) => {
+        nextCells[entry.phraseIndex] = {
+          correct: entry.correct,
+          shake: entry.shake,
+          value: entry.value,
+        };
+
+        return nextCells;
+      }, {});
+
+      if (guessFeedback) {
+        cells[guessFeedback.phraseIndex] = {
+          correct: guessFeedback.correct,
+          shake: guessFeedback.shake,
+          value: guessFeedback.value,
+        };
+      }
+
+      return cells;
+    },
+    [guessEntries, guessFeedback],
+  );
+  const activeGuessIndex = guessTargetIndexes[guessEntries.length] ?? null;
+  const isGuessComplete =
+    guessTargetIndexes.length > 0 && guessEntries.length >= guessTargetIndexes.length;
+  const isGuessFailed = guessMistakeCount >= failedGuessMistakeCount;
+  const currentGuessText = round
+    ? composeGuessTextFromEntries(round.correctPhrase, guessEntries)
+    : '';
+  const shouldPlaySenderGuessReplay = Boolean(
+    round && round.status === 'complete' && !isRecipient && !isGuessReplayComplete,
+  );
+  const isGuessInputDisabled = Boolean(
+    !round ||
+      round.status === 'complete' ||
+      isSubmittingGuess ||
+      isGuessLocked ||
+      isGuessAnimating ||
+      isLoadingReversedAttempt ||
+      !reversedAttemptBlob,
+  );
 
   const canSubmitGuess = useMemo(
     () =>
-      Boolean(round && isRecipient && hasAttempt && reversedAttemptBlob && guess.trim()) &&
+      Boolean(
+        round &&
+          isRecipient &&
+          hasAttempt &&
+          reversedAttemptBlob &&
+          (isGuessComplete || isGuessFailed) &&
+          currentGuessText,
+      ) &&
       round?.status !== 'complete' &&
       !isLoadingReversedAttempt &&
       !isSavingAttempt &&
       !isSubmittingGuess,
     [
-      guess,
+      currentGuessText,
       hasAttempt,
+      isGuessComplete,
+      isGuessFailed,
       isLoadingReversedAttempt,
       isRecipient,
       isSavingAttempt,
@@ -863,7 +994,7 @@ export function PlayRoundPanel({
       round,
     ],
   );
-  const isRewardBusy = isAnimatingReward || isClaimingReward;
+  const isRewardBusy = isAnimatingReward || isClaimingReward || shouldPlaySenderGuessReplay;
   const hasPendingReward = Boolean(roundReward && !roundReward.claimed);
   const shouldShowRewardSequence = hasPendingReward && (isAnimatingReward || isAwaitingRewardContinue);
   const rewardCampaignEntry = useMemo(() => {
@@ -1112,7 +1243,22 @@ export function PlayRoundPanel({
   }, [isRecipient, round?.id, round?.status, setCoinBalance]);
 
   useEffect(() => {
-    if (!round || round.status !== 'complete' || !currentUserId || isLoadingCoins || !isRewardStepOpen) {
+    if (recipientStage !== 'guess' || isGuessLocked || isGuessAnimating || isSubmittingGuess) {
+      return;
+    }
+
+    guessInputRef.current?.focus();
+  }, [isGuessAnimating, isGuessLocked, isSubmittingGuess, recipientStage, round?.id]);
+
+  useEffect(() => {
+    if (
+      !round ||
+      round.status !== 'complete' ||
+      !currentUserId ||
+      isLoadingCoins ||
+      !isRewardStepOpen ||
+      shouldPlaySenderGuessReplay
+    ) {
       if (round?.status === 'complete') {
         logRewardDebug('Skipped reward load before fetch.', {
           currentUserId,
@@ -1249,24 +1395,47 @@ export function PlayRoundPanel({
     round?.id,
     round?.status,
     setCoinPreview,
+    shouldPlaySenderGuessReplay,
     updateRewardPreview,
   ]);
 
-  const handleSubmitGuess = async () => {
+  const handleSubmitGuess = async (options?: {
+    entries?: GuessEntry[];
+    events?: RoundGuessEvent[];
+    guessText?: string;
+    mistakeCount?: number;
+  }) => {
     const currentRound = round;
-    const nextGuess = guess.trim();
-    if (!currentRound || !nextGuess || !isRecipient) {
+    const nextEntries = options?.entries ?? guessEntries;
+    const nextEvents = options?.events ?? guessEvents;
+    const nextMistakeCount = options?.mistakeCount ?? guessMistakeCount;
+    const nextGuess =
+      options?.guessText ??
+      (currentRound
+        ? composeGuessTextFromEntries(currentRound.correctPhrase, nextEntries)
+        : '');
+
+    if (
+      !currentRound ||
+      !nextGuess ||
+      !isRecipient ||
+      currentRound.status === 'complete' ||
+      isAutoSubmittingGuessRef.current
+    ) {
       return;
     }
 
     setError(null);
     setIsSubmittingGuess(true);
+    setIsGuessLocked(true);
+    isAutoSubmittingGuessRef.current = true;
 
     try {
       const updatedRound = await submitRoundGuess({
         roundId: currentRound.id,
         guess: nextGuess,
-        correctPhrase: currentRound.correctPhrase,
+        guessEvents: nextEvents,
+        guessMistakeCount: nextMistakeCount,
         difficulty: currentRound.difficulty,
       });
 
@@ -1280,8 +1449,121 @@ export function PlayRoundPanel({
         caughtError instanceof Error ? caughtError.message : 'Unable to submit the guess.',
       );
     } finally {
+      isAutoSubmittingGuessRef.current = false;
       setIsSubmittingGuess(false);
     }
+  };
+
+  const handleGuessCharacter = (rawCharacter: string) => {
+    const currentRound = round;
+
+    if (
+      !currentRound ||
+      currentRound.status === 'complete' ||
+      !isRecipient ||
+      isGuessLocked ||
+      isGuessAnimating ||
+      isSubmittingGuess ||
+      isGuessComplete ||
+      isGuessFailed ||
+      isGuessSpacer(rawCharacter)
+    ) {
+      return;
+    }
+
+    const targetIndex = guessTargetIndexes[guessEntries.length];
+
+    if (typeof targetIndex !== 'number') {
+      return;
+    }
+
+    const phraseCharacters = Array.from(currentRound.correctPhrase);
+    const expected = phraseCharacters[targetIndex] ?? '';
+    const value = Array.from(rawCharacter)[0] ?? '';
+    const correct = isGuessCharacterCorrect(value, expected);
+    const nextMistakeCount = guessMistakeCount + (correct ? 0 : 1);
+    const now = typeof performance === 'undefined' ? Date.now() : performance.now();
+
+    if (guessStartedAtRef.current === null) {
+      guessStartedAtRef.current = now;
+    }
+
+    const nextEntry: GuessEntry = {
+      phraseIndex: targetIndex,
+      value,
+      correct,
+      shake: !correct,
+    };
+    const nextEvent: RoundGuessEvent = {
+      index: targetIndex,
+      value,
+      expected,
+      correct,
+      mistakeCount: nextMistakeCount,
+      elapsedMs: Math.max(0, Math.round(now - guessStartedAtRef.current)),
+    };
+    const nextEntries = correct ? [...guessEntries, nextEntry] : guessEntries;
+    const nextEvents = [...guessEvents, nextEvent];
+    const didFailGuess = nextMistakeCount >= failedGuessMistakeCount;
+    const didCompleteGuess = correct && nextEntries.length >= guessTargetIndexes.length;
+
+    if (guessFeedbackTimerRef.current) {
+      clearTimeout(guessFeedbackTimerRef.current);
+      guessFeedbackTimerRef.current = null;
+    }
+
+    setGuessFeedback(nextEntry);
+    setIsGuessAnimating(true);
+    setGuessEvents(nextEvents);
+    setGuessMistakeCount(nextMistakeCount);
+
+    if (didFailGuess) {
+      setIsGuessLocked(true);
+      guessFeedbackTimerRef.current = setTimeout(() => {
+        setIsGuessAnimating(false);
+        void handleSubmitGuess({
+          entries: nextEntries,
+          events: nextEvents,
+          guessText: composeGuessTextFromEvents(currentRound.correctPhrase, nextEvents),
+          mistakeCount: nextMistakeCount,
+        });
+      }, 540);
+      return;
+    }
+
+    guessFeedbackTimerRef.current = setTimeout(() => {
+      if (correct) {
+        setGuessEntries(nextEntries);
+        setIsGuessLocked(didCompleteGuess);
+      }
+
+      setGuessFeedback(null);
+      setIsGuessAnimating(false);
+    }, correct ? 180 : 460);
+  };
+
+  const handleGuessKeyDown = (event: KeyboardEvent<HTMLInputElement | HTMLDivElement>) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+
+      if (canSubmitGuess) {
+        void handleSubmitGuess();
+      }
+
+      return;
+    }
+
+    if (event.key === 'Backspace' || event.key === 'Delete') {
+      event.preventDefault();
+      return;
+    }
+
+    if (event.ctrlKey || event.metaKey || event.altKey || event.key.length !== 1) {
+      return;
+    }
+
+    event.preventDefault();
+    handleGuessCharacter(event.key);
   };
 
   const handleListenSpendAnimationComplete = useCallback(
@@ -1340,6 +1622,15 @@ export function PlayRoundPanel({
     },
     [coins, currentUserId, listenState?.currentBalance, nextListenReplayCost, round, setCoinBalance, setCoinPreview],
   );
+
+  const handleGuessReplayComplete = useCallback(() => {
+    if (!round) {
+      return;
+    }
+
+    markGuessPlaybackCompleted(currentUserId, round.id);
+    setIsGuessReplayComplete(true);
+  }, [currentUserId, round?.id]);
 
   if (!round) {
     return (
@@ -1597,7 +1888,6 @@ export function PlayRoundPanel({
 
     setIsArchiving(false);
   };
-
   const reviewAudioGrid = (
     <div className="audio-grid">
       <AudioPlayerCard
@@ -1630,7 +1920,15 @@ export function PlayRoundPanel({
   );
 
   const rewardStatusCard =
-    activeRound.status === 'complete' && roundReward ? (
+    activeRound.status === 'complete' && shouldPlaySenderGuessReplay ? (
+      <GuessReplayPanel
+        correctPhrase={activeRound.correctPhrase}
+        events={activeRound.guessEvents}
+        guess={activeRound.guess}
+        onComplete={handleGuessReplayComplete}
+        playbackKey={activeRound.id}
+      />
+    ) : activeRound.status === 'complete' && roundReward ? (
       <RoundRewardSequence
         baseCoins={rewardBaseCoinsRef.current}
         bonusReward={
@@ -1721,7 +2019,7 @@ export function PlayRoundPanel({
           <div className="round-screen-copy">
             <div className="eyebrow">{headerEyebrow}</div>
             <h2>{headerTitle}</h2>
-            <p>{headerDescription}</p>
+            {headerDescription ? <p>{headerDescription}</p> : null}
           </div>
         </div>
       ) : null}
@@ -1791,20 +2089,40 @@ export function PlayRoundPanel({
             <div className="round-screen-step">
               <AudioPlayerCard
                 title="Reversed take"
-                description="Your imitation is locked in. Type the original phrase."
+                description=""
                 blob={reversedAttemptBlob}
                 isLoading={isLoadingReversedAttempt}
                 loadingLabel="Preparing reversed take..."
               />
 
-              <div className="field">
-                <label htmlFor="guess">Your guess</label>
+              <div
+                aria-label="Type the phrase"
+                className={`guess-board${isGuessInputDisabled ? ' is-disabled' : ''}`}
+                onClick={() => {
+                  guessInputRef.current?.focus();
+                }}
+                onKeyDown={handleGuessKeyDown}
+                role="group"
+                tabIndex={isGuessInputDisabled ? -1 : 0}
+              >
+                <GuessPhraseGrid
+                  activeIndex={isGuessInputDisabled ? null : activeGuessIndex}
+                  ariaLabel="Type the phrase"
+                  cells={guessCells}
+                  correctPhrase={activeRound.correctPhrase}
+                />
                 <input
-                  id="guess"
-                  disabled={round.status === 'complete' || isSubmittingGuess}
-                  onChange={(event) => setGuess(event.target.value)}
-                  placeholder="What was the original phrase?"
-                  value={guess}
+                  aria-label="Type the phrase"
+                  autoCapitalize="off"
+                  autoComplete="off"
+                  autoCorrect="off"
+                  className="guess-board-input"
+                  disabled={isGuessInputDisabled}
+                  inputMode="text"
+                  onChange={() => undefined}
+                  ref={guessInputRef}
+                  spellCheck={false}
+                  value=""
                 />
               </div>
             </div>
@@ -1876,7 +2194,7 @@ export function PlayRoundPanel({
           </div>
         ) : null}
 
-        {isRecipient && recipientStage === 'guess' ? (
+        {isRecipient && recipientStage === 'guess' && (isGuessComplete || isGuessFailed) ? (
           <div className="button-row">
             <button
               className="button primary"

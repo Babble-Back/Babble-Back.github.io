@@ -1,4 +1,5 @@
 import { StatusBadge } from '../../../components/StatusBadge';
+import { formatStars, scoreToStars } from '../scorePresentation';
 import type { Round } from '../types';
 
 interface InboxPanelProps {
@@ -12,9 +13,11 @@ function describeRound(round: Round, currentUserId: string) {
   const isRecipient = round.recipientId === currentUserId;
 
   if (round.status === 'complete') {
-    return round.score === null
+    const stars = scoreToStars(round.score);
+
+    return stars === null
       ? 'Round complete.'
-      : `Round complete. Score: ${round.score}/10.`;
+      : `Round complete. ${formatStars(stars)}.`;
   }
 
   if (isRecipient) {

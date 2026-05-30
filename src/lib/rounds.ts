@@ -1,10 +1,11 @@
 import type { Round } from '../features/rounds/types';
 import type { ArchiveCompletedRoundSummary } from '../features/rounds/types';
 import type { HomeThreadSummary } from '../features/rounds/types';
+import type { RoundGuessEvent } from '../features/rounds/types';
 import type { RoundListenState } from '../features/rounds/types';
 import type { RoundSummary } from '../features/rounds/types';
 import type { RoundStarCount } from '../features/rounds/types';
-import { scoreGuess } from '../features/rounds/utils';
+import { scoreGuessByMistakeCount } from '../features/rounds/utils';
 import { computeDifficulty, normalizePackText, type WordDifficulty } from '../utils/difficulty';
 import { sendClipSentPushNotification } from './push';
 import { formatSupabaseError, supabase, supabaseConfigError } from './supabase';
@@ -27,6 +28,8 @@ const ROUND_COLUMNS = [
   'sender_reaction_message',
   'sender_reaction_updated_at',
   'guess',
+  'guess_events',
+  'guess_mistake_count',
   'attempt_audio_path',
   'attempt_reversed_path',
   'recipient_reaction_message',
@@ -34,6 +37,8 @@ const ROUND_COLUMNS = [
   'score',
   'status',
 ].join(', ');
+
+const LEGACY_ROUND_COLUMNS = ROUND_COLUMNS.replace(', guess_events, guess_mistake_count', '');
 
 const ROUND_HOME_COLUMNS = [
   'id',
@@ -61,6 +66,8 @@ interface RoundRow {
   sender_reaction_message: string | null;
   sender_reaction_updated_at: string | null;
   guess: string | null;
+  guess_events: unknown;
+  guess_mistake_count: number | null;
   attempt_audio_path: string | null;
   attempt_reversed_path: string | null;
   recipient_reaction_message: string | null;
@@ -88,7 +95,8 @@ interface SaveRoundAttemptInput {
 interface SubmitRoundGuessInput {
   roundId: string;
   guess: string;
-  correctPhrase: string;
+  guessEvents: RoundGuessEvent[];
+  guessMistakeCount: number;
   difficulty: WordDifficulty;
 }
 
@@ -202,6 +210,10 @@ function isMissingRpcSignatureError(message: string, functionName: string) {
   );
 }
 
+function isMissingRoundGuessTraceColumnError(message: string) {
+  return /guess_events|guess_mistake_count/i.test(message);
+}
+
 function normalizeRoundReactionMessage(message: string | null | undefined) {
   const normalizedMessage = (message ?? '').trim();
 
@@ -214,6 +226,65 @@ function normalizeRoundReactionMessage(message: string | null | undefined) {
   }
 
   return normalizedMessage;
+}
+
+function normalizeRoundGuessEvent(event: RoundGuessEvent): RoundGuessEvent {
+  const value = Array.from(event.value ?? '')[0] ?? '';
+  const expected = Array.from(event.expected ?? '')[0] ?? '';
+  const index = Number.isFinite(event.index) ? Math.max(0, Math.floor(event.index)) : 0;
+  const mistakeCount = Number.isFinite(event.mistakeCount)
+    ? Math.max(0, Math.floor(event.mistakeCount))
+    : 0;
+  const elapsedMs = Number.isFinite(event.elapsedMs)
+    ? Math.max(0, Math.round(event.elapsedMs))
+    : 0;
+
+  return {
+    index,
+    value,
+    expected,
+    correct: Boolean(event.correct),
+    mistakeCount,
+    elapsedMs,
+  };
+}
+
+function normalizeRoundGuessEvents(events: readonly RoundGuessEvent[] | null | undefined) {
+  return (events ?? []).slice(0, 1000).map(normalizeRoundGuessEvent);
+}
+
+function normalizeGuessMistakeCount(mistakeCount: number) {
+  if (!Number.isFinite(mistakeCount)) {
+    throw new Error('Unable to score the guess.');
+  }
+
+  return Math.max(0, Math.floor(mistakeCount));
+}
+
+function mapRoundGuessEvents(value: unknown): RoundGuessEvent[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.reduce<RoundGuessEvent[]>((events, event) => {
+    if (!event || typeof event !== 'object') {
+      return events;
+    }
+
+    const rawEvent = event as Partial<RoundGuessEvent>;
+    events.push(
+      normalizeRoundGuessEvent({
+        index: Number(rawEvent.index ?? 0),
+        value: typeof rawEvent.value === 'string' ? rawEvent.value : '',
+        expected: typeof rawEvent.expected === 'string' ? rawEvent.expected : '',
+        correct: Boolean(rawEvent.correct),
+        mistakeCount: Number(rawEvent.mistakeCount ?? 0),
+        elapsedMs: Number(rawEvent.elapsedMs ?? 0),
+      }),
+    );
+
+    return events;
+  }, []);
 }
 
 export function scoreToStars(score: number | null): RoundStarCount {
@@ -285,6 +356,8 @@ async function mapRoundRow(
     senderReactionMessage: row.sender_reaction_message,
     senderReactionUpdatedAt: row.sender_reaction_updated_at,
     guess: row.guess ?? '',
+    guessEvents: mapRoundGuessEvents(row.guess_events),
+    guessMistakeCount: row.guess_mistake_count ?? null,
     attemptAudioBlob: null,
     attemptAudioUrl,
     recipientReactionMessage: row.recipient_reaction_message,
@@ -448,11 +521,22 @@ export async function getRoundDetails(roundId: string): Promise<Round | null> {
   }
 
   const client = requireSupabase();
-  const { data, error } = await client
+  let { data, error } = await client
     .from('rounds')
     .select(ROUND_COLUMNS)
     .eq('id', normalizedRoundId)
     .maybeSingle();
+
+  if (error && isMissingRoundGuessTraceColumnError(error.message)) {
+    const fallbackResult = await client
+      .from('rounds')
+      .select(LEGACY_ROUND_COLUMNS)
+      .eq('id', normalizedRoundId)
+      .maybeSingle();
+
+    data = fallbackResult.data;
+    error = fallbackResult.error;
+  }
 
   if (error) {
     throw new Error(`Unable to load the round: ${error.message}`);
@@ -477,7 +561,7 @@ export async function createRoundRecord(
     label: 'original',
   });
 
-  const { data, error } = await client
+  let { data, error } = await client
     .from('rounds')
     .insert({
       id: roundId,
@@ -492,6 +576,27 @@ export async function createRoundRecord(
     })
     .select(ROUND_COLUMNS)
     .single();
+
+  if (error && isMissingRoundGuessTraceColumnError(error.message)) {
+    const fallbackResult = await client
+      .from('rounds')
+      .insert({
+        id: roundId,
+        recipient_id: input.recipientId,
+        pack_id: input.packId,
+        correct_phrase: normalizePackText(input.correctPhrase),
+        difficulty: input.difficulty,
+        original_audio_path: originalAudio.path,
+        reversed_audio_path: null,
+        sender_reaction_message: senderReactionMessage,
+        status: 'waiting_for_attempt',
+      })
+      .select(LEGACY_ROUND_COLUMNS)
+      .single();
+
+    data = fallbackResult.data;
+    error = fallbackResult.error;
+  }
 
   if (error || !data) {
     throw new Error(`Unable to create round: ${error?.message || 'Unknown error.'}`);
@@ -521,7 +626,7 @@ export async function saveRoundAttempt(
     label: 'attempt',
   });
 
-  const { data, error } = await client
+  let { data, error } = await client
     .from('rounds')
     .update({
       attempt_audio_path: attemptAudio.path,
@@ -531,6 +636,22 @@ export async function saveRoundAttempt(
     .eq('id', input.roundId)
     .select(ROUND_COLUMNS)
     .single();
+
+  if (error && isMissingRoundGuessTraceColumnError(error.message)) {
+    const fallbackResult = await client
+      .from('rounds')
+      .update({
+        attempt_audio_path: attemptAudio.path,
+        attempt_reversed_path: null,
+        status: 'attempted',
+      })
+      .eq('id', input.roundId)
+      .select(LEGACY_ROUND_COLUMNS)
+      .single();
+
+    data = fallbackResult.data;
+    error = fallbackResult.error;
+  }
 
   if (error || !data) {
     throw new Error(`Unable to save the attempt: ${error?.message || 'Unknown error.'}`);
@@ -547,13 +668,29 @@ export async function submitRoundGuess(
 ): Promise<Round> {
   const client = requireSupabase();
   const guess = input.guess.trim();
-  const score = scoreGuess(guess, input.correctPhrase);
-  const { data, error } = await client.rpc('complete_round_and_award_resources', {
+  const guessMistakeCount = normalizeGuessMistakeCount(input.guessMistakeCount);
+  const guessEvents = normalizeRoundGuessEvents(input.guessEvents);
+  const score = scoreGuessByMistakeCount(guessMistakeCount);
+  let { data, error } = await client.rpc('complete_round_and_award_resources', {
     round_id: input.roundId,
     guess_input: guess,
+    guess_events_input: guessEvents,
+    guess_mistake_count_input: guessMistakeCount,
     score_input: score,
     difficulty_input: input.difficulty,
   });
+
+  if (error && isMissingRpcSignatureError(error.message, 'complete_round_and_award_resources')) {
+    const fallbackResult = await client.rpc('complete_round_and_award_resources', {
+      round_id: input.roundId,
+      guess_input: guess,
+      score_input: score,
+      difficulty_input: input.difficulty,
+    });
+
+    data = fallbackResult.data;
+    error = fallbackResult.error;
+  }
 
   if (error || !data) {
     throw new Error(
@@ -655,11 +792,22 @@ export async function archiveCompletedRound(
   input: ArchiveCompletedRoundInput,
 ): Promise<ArchiveCompletedRoundSummary> {
   const client = requireSupabase();
-  const { data: roundData, error: roundError } = await client
+  let { data: roundData, error: roundError } = await client
     .from('rounds')
     .select(ROUND_COLUMNS)
     .eq('id', input.roundId)
     .single();
+
+  if (roundError && isMissingRoundGuessTraceColumnError(roundError.message)) {
+    const fallbackResult = await client
+      .from('rounds')
+      .select(LEGACY_ROUND_COLUMNS)
+      .eq('id', input.roundId)
+      .single();
+
+    roundData = fallbackResult.data;
+    roundError = fallbackResult.error;
+  }
 
   if (roundError || !roundData) {
     throw new Error(`Unable to load the round to archive: ${roundError?.message || 'Unknown error.'}`);

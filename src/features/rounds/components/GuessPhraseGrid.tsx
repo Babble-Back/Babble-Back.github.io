@@ -1,0 +1,197 @@
+import { useEffect, useMemo, useState } from 'react';
+import type { RoundGuessEvent } from '../types';
+import {
+  extractGuessCharacters,
+  getGuessTargetIndexes,
+  isGuessCharacterCorrect,
+  isGuessSpacer,
+} from '../utils';
+
+export interface GuessCellState {
+  value: string;
+  correct: boolean;
+  shake?: boolean;
+}
+
+export type GuessCellMap = Record<number, GuessCellState | undefined>;
+
+interface GuessPhraseGridProps {
+  activeIndex?: number | null;
+  ariaLabel?: string;
+  cells: GuessCellMap;
+  className?: string;
+  correctPhrase: string;
+}
+
+interface GuessReplayPanelProps {
+  correctPhrase: string;
+  events?: RoundGuessEvent[] | null;
+  guess: string;
+  onComplete: () => void;
+  playbackKey: string;
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function buildFallbackEvents(correctPhrase: string, guess: string): RoundGuessEvent[] {
+  const phraseCharacters = Array.from(correctPhrase);
+  const targetIndexes = getGuessTargetIndexes(correctPhrase);
+  const guessCharacters = extractGuessCharacters(guess).slice(0, targetIndexes.length);
+  let mistakeCount = 0;
+
+  return guessCharacters.map((value, guessIndex) => {
+    const index = targetIndexes[guessIndex] ?? guessIndex;
+    const expected = phraseCharacters[index] ?? '';
+    const correct = isGuessCharacterCorrect(value, expected);
+
+    if (!correct) {
+      mistakeCount += 1;
+    }
+
+    return {
+      index,
+      value,
+      expected,
+      correct,
+      mistakeCount,
+      elapsedMs: guessIndex * 220,
+    };
+  });
+}
+
+function getReplaySchedule(events: RoundGuessEvent[]) {
+  let elapsedMs = 180;
+
+  return events.map((event, index) => {
+    const previousEvent = events[index - 1];
+    const rawDelta =
+      previousEvent && event.elapsedMs > previousEvent.elapsedMs
+        ? event.elapsedMs - previousEvent.elapsedMs
+        : 240;
+    const delta = clamp(rawDelta * 0.72, 120, 520);
+
+    elapsedMs += delta;
+
+    return {
+      delayMs: elapsedMs,
+      event,
+    };
+  });
+}
+
+export function GuessPhraseGrid({
+  activeIndex = null,
+  ariaLabel = 'Phrase guess',
+  cells,
+  className = '',
+  correctPhrase,
+}: GuessPhraseGridProps) {
+  return (
+    <div
+      aria-label={ariaLabel}
+      className={`guess-phrase-grid ${className}`.trim()}
+      role="img"
+    >
+      {Array.from(correctPhrase).map((character, index) => {
+        if (isGuessSpacer(character)) {
+          return (
+            <span
+              aria-hidden="true"
+              className="guess-phrase-space"
+              key={`space-${index}`}
+            />
+          );
+        }
+
+        const cell = cells[index];
+        const isFilled = Boolean(cell?.value);
+        const toneClass = isFilled
+          ? cell?.correct
+            ? 'is-correct'
+            : 'is-mistake'
+          : 'is-empty';
+        const activeClass = activeIndex === index ? 'is-active' : '';
+        const shakeClass = cell?.shake ? 'is-shaking' : '';
+
+        return (
+          <span
+            aria-hidden="true"
+            className={`guess-phrase-cell ${toneClass} ${activeClass} ${shakeClass}`.trim()}
+            key={`cell-${index}`}
+          >
+            {cell?.value ?? '_'}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
+export function GuessReplayPanel({
+  correctPhrase,
+  events,
+  guess,
+  onComplete,
+  playbackKey,
+}: GuessReplayPanelProps) {
+  const playbackEvents = useMemo(
+    () =>
+      events && events.length > 0
+        ? events
+        : buildFallbackEvents(correctPhrase, guess),
+    [correctPhrase, events, guess],
+  );
+  const [cells, setCells] = useState<GuessCellMap>({});
+  const [activeIndex, setActiveIndex] = useState<number | null>(null);
+
+  useEffect(() => {
+    setCells({});
+    setActiveIndex(null);
+
+    if (playbackEvents.length === 0) {
+      const emptyTimer = window.setTimeout(onComplete, 420);
+
+      return () => {
+        window.clearTimeout(emptyTimer);
+      };
+    }
+
+    const schedule = getReplaySchedule(playbackEvents);
+    const timers = schedule.map(({ delayMs, event }) =>
+      window.setTimeout(() => {
+        setActiveIndex(event.index);
+        setCells((currentCells) => ({
+          ...currentCells,
+          [event.index]: {
+            correct: event.correct,
+            shake: !event.correct,
+            value: event.value,
+          },
+        }));
+      }, delayMs),
+    );
+    const finalDelayMs = (schedule[schedule.length - 1]?.delayMs ?? 0) + 760;
+    const completeTimer = window.setTimeout(() => {
+      setActiveIndex(null);
+      onComplete();
+    }, finalDelayMs);
+
+    return () => {
+      timers.forEach((timer) => window.clearTimeout(timer));
+      window.clearTimeout(completeTimer);
+    };
+  }, [onComplete, playbackEvents, playbackKey]);
+
+  return (
+    <div className="guess-replay-card" aria-live="polite">
+      <GuessPhraseGrid
+        activeIndex={activeIndex}
+        ariaLabel="Guess replay"
+        cells={cells}
+        correctPhrase={correctPhrase}
+      />
+    </div>
+  );
+}

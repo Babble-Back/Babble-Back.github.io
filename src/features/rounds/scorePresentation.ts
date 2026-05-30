@@ -121,9 +121,9 @@ export function getRoundSummary(round: Round, isRecipient: boolean): RoundSummar
 
     if (round.status === 'attempted') {
       return {
-        headline: 'Your take is saved. Time to guess.',
-        description: 'The imitation is locked in. Now type the phrase you think you heard.',
-        callToAction: 'Tap reveal score when you are ready.',
+        headline: 'Guess the phrase.',
+        description: '',
+        callToAction: '',
       };
     }
 

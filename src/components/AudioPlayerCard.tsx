@@ -3,7 +3,7 @@ import { WaveformPlayButton, type WaveformPlayButtonProps } from './WaveformPlay
 
 interface AudioPlayerCardProps {
   title: string;
-  description: string;
+  description?: string;
   blob?: Blob | null;
   emptyLabel?: string;
   isLoading?: boolean;
@@ -34,7 +34,7 @@ export function AudioPlayerCard({
           <h4>{title}</h4>
         </div>
       </div>
-      <p>{description}</p>
+      {description ? <p>{description}</p> : null}
       {src ? (
         <div className="audio-card-player-wrap">
           <WaveformPlayButton

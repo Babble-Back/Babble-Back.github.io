@@ -3,6 +3,15 @@ import type { WordDifficulty } from '../../utils/difficulty';
 export type RoundStatus = 'waiting_for_attempt' | 'attempted' | 'complete';
 export type RoundStarCount = 0 | 1 | 2 | 3;
 
+export interface RoundGuessEvent {
+  index: number;
+  value: string;
+  expected: string;
+  correct: boolean;
+  mistakeCount: number;
+  elapsedMs: number;
+}
+
 export interface RewardSequenceReward {
   id: string;
   stars: RoundStarCount;
@@ -65,6 +74,8 @@ export interface Round {
   senderReactionMessage: string | null;
   senderReactionUpdatedAt: string | null;
   guess: string;
+  guessEvents: RoundGuessEvent[];
+  guessMistakeCount: number | null;
   attemptAudioBlob: Blob | null;
   attemptAudioUrl: string | null;
   recipientReactionMessage: string | null;

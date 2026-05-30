@@ -1,3 +1,6 @@
+export const maxGuessMistakesForStars = 4;
+export const failedGuessMistakeCount = maxGuessMistakesForStars + 1;
+
 export function normalizeGuess(value: string) {
   return value
     .trim()
@@ -8,6 +11,117 @@ export function normalizeGuess(value: string) {
     .replace(/\s+/g, ' ')
     .trim()
     .toLocaleLowerCase();
+}
+
+export function isGuessSpacer(value: string) {
+  return /^\s$/u.test(value);
+}
+
+export function normalizeGuessCharacter(value: string) {
+  const normalizedValue = value
+    .normalize('NFKC')
+    .replace(/[\u2018\u2019\u201B\u2032\u0060]/g, "'")
+    .replace(/[\u201C\u201D\u2033]/g, '"')
+    .toLocaleLowerCase();
+
+  return Array.from(normalizedValue)[0] ?? '';
+}
+
+export function isGuessCharacterCorrect(value: string, expected: string) {
+  return normalizeGuessCharacter(value) === normalizeGuessCharacter(expected);
+}
+
+export function getGuessTargetIndexes(correctPhrase: string) {
+  return Array.from(correctPhrase).reduce<number[]>((indexes, character, index) => {
+    if (!isGuessSpacer(character)) {
+      indexes.push(index);
+    }
+
+    return indexes;
+  }, []);
+}
+
+export function extractGuessCharacters(value: string) {
+  return Array.from(value).filter((character) => !isGuessSpacer(character));
+}
+
+export function composeGuessTextFromEntries(
+  correctPhrase: string,
+  entries: readonly { value: string }[],
+) {
+  let entryIndex = 0;
+
+  return Array.from(correctPhrase)
+    .map((character) => {
+      if (isGuessSpacer(character)) {
+        return character;
+      }
+
+      const entry = entries[entryIndex];
+      entryIndex += 1;
+
+      return entry?.value ?? '';
+    })
+    .join('')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+export function composeGuessTextFromEvents(
+  correctPhrase: string,
+  events: readonly { index: number; value: string }[],
+) {
+  const latestValuesByIndex = new Map<number, string>();
+
+  for (const event of events) {
+    latestValuesByIndex.set(event.index, event.value);
+  }
+
+  return Array.from(correctPhrase)
+    .map((character, index) => {
+      if (isGuessSpacer(character)) {
+        return character;
+      }
+
+      return latestValuesByIndex.get(index) ?? '';
+    })
+    .join('')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+export function starsFromGuessMistakeCount(mistakeCount: number) {
+  if (mistakeCount <= 0) {
+    return 3;
+  }
+
+  if (mistakeCount <= 2) {
+    return 2;
+  }
+
+  if (mistakeCount <= maxGuessMistakesForStars) {
+    return 1;
+  }
+
+  return 0;
+}
+
+export function scoreGuessByMistakeCount(mistakeCount: number) {
+  const stars = starsFromGuessMistakeCount(mistakeCount);
+
+  if (stars === 3) {
+    return 10;
+  }
+
+  if (stars === 2) {
+    return 8;
+  }
+
+  if (stars === 1) {
+    return 5;
+  }
+
+  return 0;
 }
 
 export function calculateGuessSimilarity(guess: string, correctPhrase: string) {
