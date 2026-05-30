@@ -56,21 +56,21 @@ function buildFallbackEvents(correctPhrase: string, guess: string): RoundGuessEv
       expected,
       correct,
       mistakeCount,
-      elapsedMs: guessIndex * 220,
+      elapsedMs: guessIndex * 420,
     };
   });
 }
 
 function getReplaySchedule(events: RoundGuessEvent[]) {
-  let elapsedMs = 180;
+  let elapsedMs = 320;
 
   return events.map((event, index) => {
     const previousEvent = events[index - 1];
     const rawDelta =
       previousEvent && event.elapsedMs > previousEvent.elapsedMs
         ? event.elapsedMs - previousEvent.elapsedMs
-        : 240;
-    const delta = clamp(rawDelta * 0.72, 120, 520);
+        : 420;
+    const delta = clamp(rawDelta * 1.08, 260, 1250);
 
     elapsedMs += delta;
 
@@ -172,7 +172,7 @@ export function GuessReplayPanel({
         }));
       }, delayMs),
     );
-    const finalDelayMs = (schedule[schedule.length - 1]?.delayMs ?? 0) + 760;
+    const finalDelayMs = (schedule[schedule.length - 1]?.delayMs ?? 0) + 1100;
     const completeTimer = window.setTimeout(() => {
       setActiveIndex(null);
       onComplete();

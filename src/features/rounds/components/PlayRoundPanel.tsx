@@ -952,7 +952,9 @@ export function PlayRoundPanel({
     guessTargetIndexes.length > 0 && guessEntries.length >= guessTargetIndexes.length;
   const isGuessFailed = guessMistakeCount >= failedGuessMistakeCount;
   const currentGuessText = round
-    ? composeGuessTextFromEntries(round.correctPhrase, guessEntries)
+    ? isGuessFailed
+      ? composeGuessTextFromEvents(round.correctPhrase, guessEvents)
+      : composeGuessTextFromEntries(round.correctPhrase, guessEntries)
     : '';
   const shouldPlaySenderGuessReplay = Boolean(
     round && round.status === 'complete' && !isRecipient && !isGuessReplayComplete,
@@ -978,12 +980,14 @@ export function PlayRoundPanel({
           currentGuessText,
       ) &&
       round?.status !== 'complete' &&
+      !isGuessAnimating &&
       !isLoadingReversedAttempt &&
       !isSavingAttempt &&
       !isSubmittingGuess,
     [
       currentGuessText,
       hasAttempt,
+      isGuessAnimating,
       isGuessComplete,
       isGuessFailed,
       isLoadingReversedAttempt,
@@ -1412,7 +1416,9 @@ export function PlayRoundPanel({
     const nextGuess =
       options?.guessText ??
       (currentRound
-        ? composeGuessTextFromEntries(currentRound.correctPhrase, nextEntries)
+        ? nextMistakeCount >= failedGuessMistakeCount
+          ? composeGuessTextFromEvents(currentRound.correctPhrase, nextEvents)
+          : composeGuessTextFromEntries(currentRound.correctPhrase, nextEntries)
         : '');
 
     if (
@@ -1521,12 +1527,6 @@ export function PlayRoundPanel({
       setIsGuessLocked(true);
       guessFeedbackTimerRef.current = setTimeout(() => {
         setIsGuessAnimating(false);
-        void handleSubmitGuess({
-          entries: nextEntries,
-          events: nextEvents,
-          guessText: composeGuessTextFromEvents(currentRound.correctPhrase, nextEvents),
-          mistakeCount: nextMistakeCount,
-        });
       }, 540);
       return;
     }
@@ -2204,7 +2204,7 @@ export function PlayRoundPanel({
               }}
               type="button"
             >
-              {isSubmittingGuess ? 'Revealing...' : 'Reveal stars'}
+              {isSubmittingGuess ? 'Continuing...' : 'Continue'}
             </button>
           </div>
         ) : null}
