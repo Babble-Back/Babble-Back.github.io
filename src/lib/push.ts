@@ -16,7 +16,7 @@ export interface PushSyncResult {
   permission: NotificationPermission | 'unsupported';
 }
 
-type PushNotificationType = 'round_turn' | 'friend_request';
+type PushNotificationType = 'round_turn' | 'friend_request' | 'audio_message';
 
 interface SendPushFunctionRequest {
   targetUserId: string;
@@ -446,7 +446,15 @@ export async function syncPushNotifications(
 }
 
 function getNotificationDebugLabel(notificationType: PushNotificationType) {
-  return notificationType === 'friend_request' ? 'friend request' : 'round turn';
+  if (notificationType === 'friend_request') {
+    return 'friend request';
+  }
+
+  if (notificationType === 'audio_message') {
+    return 'audio message';
+  }
+
+  return 'round turn';
 }
 
 async function sendPushNotification(
@@ -526,6 +534,10 @@ async function sendPushNotification(
 
 export async function sendClipSentPushNotification(targetUserId: string) {
   await sendPushNotification(targetUserId, 'round_turn');
+}
+
+export async function sendAudioMessagePushNotification(targetUserId: string) {
+  await sendPushNotification(targetUserId, 'audio_message');
 }
 
 export async function sendFriendRequestPushNotification(targetUserId: string) {

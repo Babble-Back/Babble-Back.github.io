@@ -1,6 +1,7 @@
 import type { WordDifficulty } from '../../utils/difficulty';
 
 export type RoundStatus = 'waiting_for_attempt' | 'attempted' | 'complete';
+export type RoundMode = 'reward' | 'chat';
 export type RoundStarCount = 0 | 1 | 2 | 3;
 
 export interface RoundGuessEvent {
@@ -10,6 +11,7 @@ export interface RoundGuessEvent {
   correct: boolean;
   mistakeCount: number;
   elapsedMs: number;
+  attemptIndex?: number;
 }
 
 export interface RewardSequenceReward {
@@ -80,6 +82,11 @@ export interface Round {
   attemptAudioUrl: string | null;
   recipientReactionMessage: string | null;
   recipientReactionUpdatedAt: string | null;
+  roundMode: RoundMode;
+  chatGaveUp: boolean;
+  chatCollapsedAt: string | null;
+  senderViewedResultsAt: string | null;
+  recipientViewedResultsAt: string | null;
   score: number | null;
   status: RoundStatus;
 }
@@ -99,5 +106,7 @@ export interface HomeThreadSummary {
   activeRound: RoundSummary | null;
   reviewRound: RoundSummary | null;
   currentRoundCount: number;
+  chatLastActiveAt: string | null;
+  chatUnreadCount: number;
   lastActiveAt: string | null;
 }

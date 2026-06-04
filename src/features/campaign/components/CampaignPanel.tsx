@@ -1323,6 +1323,7 @@ export function CampaignPanel({
             <AudioPlayerCard
               blob={attemptRecording}
               description="Replay your latest attempt before it is scored."
+              playbackKind="babble"
               title="Attempt Preview"
             />
           ) : null}
@@ -1382,6 +1383,7 @@ export function CampaignPanel({
               <AudioPlayerCard
                 blob={reversedAttemptRecording}
                 description="This reversed clip was converted back to forward speech and scored in the browser."
+                playbackKind="babble"
                 title="Scoring Audio"
               />
             ) : null}

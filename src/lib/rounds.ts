@@ -5,15 +5,16 @@ import type { RoundGuessEvent } from '../features/rounds/types';
 import type { RoundListenState } from '../features/rounds/types';
 import type { RoundSummary } from '../features/rounds/types';
 import type { RoundStarCount } from '../features/rounds/types';
-import { scoreGuessByMistakeCount } from '../features/rounds/utils';
+import { normalizeGuess, scoreGuessByTrace } from '../features/rounds/utils';
 import { computeDifficulty, normalizePackText, type WordDifficulty } from '../utils/difficulty';
-import { sendClipSentPushNotification } from './push';
+import { sendAudioMessagePushNotification, sendClipSentPushNotification } from './push';
 import { formatSupabaseError, supabase, supabaseConfigError } from './supabase';
 import { createSignedAudioUrl, uploadAudio } from './storage/uploadAudio';
 
-const ROUND_COLUMNS = [
+const ROUND_COLUMN_LIST = [
   'id',
   'created_at',
+  'round_mode',
   'sender_id',
   'sender_email',
   'sender_username',
@@ -34,11 +35,30 @@ const ROUND_COLUMNS = [
   'attempt_reversed_path',
   'recipient_reaction_message',
   'recipient_reaction_updated_at',
+  'chat_gave_up',
+  'chat_collapsed_at',
+  'sender_viewed_results_at',
+  'recipient_viewed_results_at',
   'score',
   'status',
-].join(', ');
+];
 
-const LEGACY_ROUND_COLUMNS = ROUND_COLUMNS.replace(', guess_events, guess_mistake_count', '');
+const CHAT_METADATA_COLUMNS = new Set([
+  'round_mode',
+  'chat_gave_up',
+  'chat_collapsed_at',
+  'sender_viewed_results_at',
+  'recipient_viewed_results_at',
+]);
+
+const ROUND_COLUMNS = ROUND_COLUMN_LIST.join(', ');
+const ROUND_COLUMNS_WITHOUT_CHAT_METADATA = ROUND_COLUMN_LIST
+  .filter((column) => !CHAT_METADATA_COLUMNS.has(column))
+  .join(', ');
+const LEGACY_ROUND_COLUMNS = ROUND_COLUMNS_WITHOUT_CHAT_METADATA.replace(
+  ', guess_events, guess_mistake_count',
+  '',
+);
 
 const ROUND_HOME_COLUMNS = [
   'id',
@@ -48,10 +68,31 @@ const ROUND_HOME_COLUMNS = [
   'score',
   'status',
 ].join(', ');
+const ROUND_HOME_COLUMNS_WITH_MODE = [
+  'id',
+  'created_at',
+  'round_mode',
+  'sender_id',
+  'recipient_id',
+  'score',
+  'status',
+].join(', ');
+const CHAT_HOME_COLUMNS = [
+  'id',
+  'created_at',
+  'updated_at',
+  'round_mode',
+  'sender_id',
+  'recipient_id',
+  'status',
+  'sender_chat_read_at',
+  'recipient_chat_read_at',
+].join(', ');
 
 interface RoundRow {
   id: string;
   created_at: string;
+  round_mode?: Round['roundMode'] | null;
   sender_id: string;
   sender_email: string;
   sender_username: string;
@@ -72,6 +113,10 @@ interface RoundRow {
   attempt_reversed_path: string | null;
   recipient_reaction_message: string | null;
   recipient_reaction_updated_at: string | null;
+  chat_gave_up?: boolean | null;
+  chat_collapsed_at?: string | null;
+  sender_viewed_results_at?: string | null;
+  recipient_viewed_results_at?: string | null;
   score: number | null;
   status: Round['status'];
 }
@@ -86,14 +131,31 @@ interface CreateRoundRecordInput {
   reactionMessage?: string | null;
 }
 
+interface CreateChatRoundRecordInput {
+  currentUserId: string;
+  recipientId: string;
+  correctPhrase: string;
+  originalAudioBlob: Blob;
+}
+
 interface SaveRoundAttemptInput {
   currentUserId: string;
   roundId: string;
   attemptAudioBlob: Blob;
+  roundMode?: Round['roundMode'];
+}
+
+interface CompleteChatRoundInput {
+  roundId: string;
+  guess: string;
+  guessEvents: RoundGuessEvent[];
+  guessMistakeCount: number;
+  gaveUp: boolean;
 }
 
 interface SubmitRoundGuessInput {
   roundId: string;
+  correctPhrase: string;
   guess: string;
   guessEvents: RoundGuessEvent[];
   guessMistakeCount: number;
@@ -155,16 +217,31 @@ interface HomeThreadSummaryRow {
   review_round_score: number | null;
   review_round_status: Round['status'] | null;
   current_round_count: number | null;
+  chat_last_active_at?: string | null;
+  chat_unread_count?: number | null;
   last_active_at: string | null;
 }
 
 interface HomeRoundSummaryRow {
   id: string;
   created_at: string;
+  round_mode?: Round['roundMode'] | null;
   sender_id: string;
   recipient_id: string;
   score: number | null;
   status: Round['status'];
+}
+
+interface HomeChatSummaryRow {
+  id: string;
+  created_at: string;
+  updated_at?: string | null;
+  round_mode?: Round['roundMode'] | null;
+  sender_id: string;
+  recipient_id: string;
+  status: Round['status'];
+  sender_chat_read_at?: string | null;
+  recipient_chat_read_at?: string | null;
 }
 
 export const difficultyMultiplier: Record<WordDifficulty, number> = {
@@ -181,6 +258,7 @@ export const freeListenLimitByDifficulty: Record<WordDifficulty, number> = {
 
 export const extraListenCost = 5;
 export const maxRoundReactionLength = 500;
+export const maxChatPhraseLength = 80;
 
 function requireSupabase() {
   if (!supabase) {
@@ -214,6 +292,26 @@ function isMissingRoundGuessTraceColumnError(message: string) {
   return /guess_events|guess_mistake_count/i.test(message);
 }
 
+function isMissingRoundChatMetadataColumnError(message: string) {
+  return /round_mode|chat_gave_up|chat_collapsed_at|sender_viewed_results_at|recipient_viewed_results_at|sender_chat_read_at|recipient_chat_read_at/i.test(
+    message,
+  );
+}
+
+function normalizeChatPhrase(phrase: string) {
+  const normalizedPhrase = normalizeGuess(phrase);
+
+  if (!normalizedPhrase) {
+    throw new Error('Type what you are going to say before recording.');
+  }
+
+  if (normalizedPhrase.length > maxChatPhraseLength) {
+    throw new Error(`Keep chat phrases to ${maxChatPhraseLength} characters or fewer.`);
+  }
+
+  return normalizedPhrase;
+}
+
 function normalizeRoundReactionMessage(message: string | null | undefined) {
   const normalizedMessage = (message ?? '').trim();
 
@@ -238,8 +336,11 @@ function normalizeRoundGuessEvent(event: RoundGuessEvent): RoundGuessEvent {
   const elapsedMs = Number.isFinite(event.elapsedMs)
     ? Math.max(0, Math.round(event.elapsedMs))
     : 0;
+  const attemptIndex = Number.isFinite(event.attemptIndex)
+    ? Math.max(0, Math.floor(event.attemptIndex ?? 0))
+    : null;
 
-  return {
+  const normalizedEvent: RoundGuessEvent = {
     index,
     value,
     expected,
@@ -247,6 +348,12 @@ function normalizeRoundGuessEvent(event: RoundGuessEvent): RoundGuessEvent {
     mistakeCount,
     elapsedMs,
   };
+
+  if (attemptIndex !== null) {
+    normalizedEvent.attemptIndex = attemptIndex;
+  }
+
+  return normalizedEvent;
 }
 
 function normalizeRoundGuessEvents(events: readonly RoundGuessEvent[] | null | undefined) {
@@ -280,6 +387,7 @@ function mapRoundGuessEvents(value: unknown): RoundGuessEvent[] {
         correct: Boolean(rawEvent.correct),
         mistakeCount: Number(rawEvent.mistakeCount ?? 0),
         elapsedMs: Number(rawEvent.elapsedMs ?? 0),
+        attemptIndex: Number(rawEvent.attemptIndex ?? 0),
       }),
     );
 
@@ -362,6 +470,11 @@ async function mapRoundRow(
     attemptAudioUrl,
     recipientReactionMessage: row.recipient_reaction_message,
     recipientReactionUpdatedAt: row.recipient_reaction_updated_at,
+    roundMode: row.round_mode ?? 'reward',
+    chatGaveUp: Boolean(row.chat_gave_up),
+    chatCollapsedAt: row.chat_collapsed_at ?? null,
+    senderViewedResultsAt: row.sender_viewed_results_at ?? null,
+    recipientViewedResultsAt: row.recipient_viewed_results_at ?? null,
     score: row.score,
     status: row.status,
   };
@@ -423,13 +536,62 @@ function mapHomeThreadSummaryRow(row: HomeThreadSummaryRow): HomeThreadSummary {
       status: row.review_round_status,
     }),
     currentRoundCount: row.current_round_count ?? 0,
+    chatLastActiveAt: row.chat_last_active_at ?? null,
+    chatUnreadCount: row.chat_unread_count ?? 0,
     lastActiveAt: row.last_active_at,
   };
+}
+
+function getLatestIsoDate(left: string | null | undefined, right: string | null | undefined) {
+  if (!left) {
+    return right ?? null;
+  }
+
+  if (!right) {
+    return left;
+  }
+
+  return new Date(left).getTime() >= new Date(right).getTime() ? left : right;
+}
+
+function getChatEventAt(row: HomeChatSummaryRow) {
+  return row.status === 'waiting_for_attempt'
+    ? row.created_at
+    : (row.updated_at ?? row.created_at);
+}
+
+function isFallbackChatUnreadForUser(row: HomeChatSummaryRow, currentUserId: string) {
+  if ((row.round_mode ?? 'reward') !== 'chat') {
+    return false;
+  }
+
+  if (row.sender_id === currentUserId) {
+    if (row.status !== 'attempted' && row.status !== 'complete') {
+      return false;
+    }
+
+    const eventAt = getChatEventAt(row);
+    return !row.sender_chat_read_at || new Date(row.sender_chat_read_at).getTime() < new Date(eventAt).getTime();
+  }
+
+  if (row.recipient_id === currentUserId) {
+    if (row.status !== 'waiting_for_attempt') {
+      return false;
+    }
+
+    return (
+      !row.recipient_chat_read_at ||
+      new Date(row.recipient_chat_read_at).getTime() < new Date(row.created_at).getTime()
+    );
+  }
+
+  return false;
 }
 
 function mapFallbackHomeThreads(
   currentUserId: string,
   rows: HomeRoundSummaryRow[],
+  chatRows: HomeChatSummaryRow[] = [],
 ): HomeThreadSummary[] {
   const threadMap = new Map<string, HomeThreadSummary>();
 
@@ -453,6 +615,8 @@ function mapFallbackHomeThreads(
         reviewRound:
           row.status === 'complete' && row.sender_id === currentUserId ? roundSummary : null,
         currentRoundCount: 1,
+        chatLastActiveAt: null,
+        chatUnreadCount: 0,
         lastActiveAt: row.created_at,
       });
       continue;
@@ -477,6 +641,39 @@ function mapFallbackHomeThreads(
     }
   }
 
+  for (const row of chatRows) {
+    if ((row.round_mode ?? 'reward') !== 'chat') {
+      continue;
+    }
+
+    const friendId = row.sender_id === currentUserId ? row.recipient_id : row.sender_id;
+    const eventAt = getChatEventAt(row);
+    const existingThread = threadMap.get(friendId);
+    const thread =
+      existingThread ??
+      {
+        friendId,
+        latestRound: null,
+        activeRound: null,
+        reviewRound: null,
+        currentRoundCount: 0,
+        chatLastActiveAt: null,
+        chatUnreadCount: 0,
+        lastActiveAt: null,
+      };
+
+    thread.chatLastActiveAt = getLatestIsoDate(thread.chatLastActiveAt, eventAt);
+    thread.lastActiveAt = getLatestIsoDate(thread.lastActiveAt, eventAt);
+
+    if (isFallbackChatUnreadForUser(row, currentUserId)) {
+      thread.chatUnreadCount += 1;
+    }
+
+    if (!existingThread) {
+      threadMap.set(friendId, thread);
+    }
+  }
+
   return [...threadMap.values()];
 }
 
@@ -491,18 +688,43 @@ export async function listHomeThreads(currentUserId?: string | null): Promise<Ho
       return [];
     }
 
-    const fallbackResult = await client
+    let fallbackResult = await client
       .from('rounds')
-      .select(ROUND_HOME_COLUMNS)
+      .select(ROUND_HOME_COLUMNS_WITH_MODE)
+      .eq('round_mode', 'reward')
       .order('created_at', { ascending: false });
+
+    if (fallbackResult.error && isMissingRoundChatMetadataColumnError(fallbackResult.error.message)) {
+      fallbackResult = await client
+        .from('rounds')
+        .select(ROUND_HOME_COLUMNS)
+        .order('created_at', { ascending: false });
+    }
 
     if (fallbackResult.error) {
       throw new Error(`Unable to load thread summaries: ${fallbackResult.error.message}`);
     }
 
+    const fallbackRows = ((fallbackResult.data as unknown as HomeRoundSummaryRow[] | null) ?? [])
+      .filter((row) => (row.round_mode ?? 'reward') === 'reward');
+    let fallbackChatRows: HomeChatSummaryRow[] = [];
+
+    const chatFallbackResult = await client
+      .from('rounds')
+      .select(CHAT_HOME_COLUMNS)
+      .eq('round_mode', 'chat')
+      .order('updated_at', { ascending: false });
+
+    if (!chatFallbackResult.error) {
+      fallbackChatRows = (chatFallbackResult.data as unknown as HomeChatSummaryRow[] | null) ?? [];
+    } else if (!isMissingRoundChatMetadataColumnError(chatFallbackResult.error.message)) {
+      throw new Error(`Unable to load chat thread summaries: ${chatFallbackResult.error.message}`);
+    }
+
     return mapFallbackHomeThreads(
       resolvedCurrentUserId,
-      ((fallbackResult.data as unknown as HomeRoundSummaryRow[] | null) ?? []),
+      fallbackRows,
+      fallbackChatRows,
     );
   }
 
@@ -527,6 +749,17 @@ export async function getRoundDetails(roundId: string): Promise<Round | null> {
     .eq('id', normalizedRoundId)
     .maybeSingle();
 
+  if (error && isMissingRoundChatMetadataColumnError(error.message)) {
+    const fallbackResult = await client
+      .from('rounds')
+      .select(ROUND_COLUMNS_WITHOUT_CHAT_METADATA)
+      .eq('id', normalizedRoundId)
+      .maybeSingle();
+
+    data = fallbackResult.data;
+    error = fallbackResult.error;
+  }
+
   if (error && isMissingRoundGuessTraceColumnError(error.message)) {
     const fallbackResult = await client
       .from('rounds')
@@ -547,6 +780,42 @@ export async function getRoundDetails(roundId: string): Promise<Round | null> {
   }
 
   return mapRoundRow(data as unknown as RoundRow);
+}
+
+export async function listFriendChatRounds(input: {
+  currentUserId: string;
+  friendId: string;
+  limit?: number;
+}): Promise<Round[]> {
+  const currentUserId = input.currentUserId.trim();
+  const friendId = input.friendId.trim();
+
+  if (!currentUserId || !friendId) {
+    return [];
+  }
+
+  const client = requireSupabase();
+  const { data, error } = await client
+    .from('rounds')
+    .select(ROUND_COLUMNS)
+    .eq('round_mode', 'chat')
+    .or(
+      `and(sender_id.eq.${currentUserId},recipient_id.eq.${friendId}),and(sender_id.eq.${friendId},recipient_id.eq.${currentUserId})`,
+    )
+    .order('created_at', { ascending: true })
+    .limit(input.limit ?? 50);
+
+  if (error) {
+    if (isMissingRoundChatMetadataColumnError(error.message)) {
+      return [];
+    }
+
+    throw new Error(`Unable to load chat history: ${error.message}`);
+  }
+
+  return Promise.all(
+    ((data as unknown as RoundRow[] | null) ?? []).map((row) => mapRoundRow(row)),
+  );
 }
 
 export async function createRoundRecord(
@@ -576,6 +845,27 @@ export async function createRoundRecord(
     })
     .select(ROUND_COLUMNS)
     .single();
+
+  if (error && isMissingRoundChatMetadataColumnError(error.message)) {
+    const fallbackResult = await client
+      .from('rounds')
+      .insert({
+        id: roundId,
+        recipient_id: input.recipientId,
+        pack_id: input.packId,
+        correct_phrase: normalizePackText(input.correctPhrase),
+        difficulty: input.difficulty,
+        original_audio_path: originalAudio.path,
+        reversed_audio_path: null,
+        sender_reaction_message: senderReactionMessage,
+        status: 'waiting_for_attempt',
+      })
+      .select(ROUND_COLUMNS_WITHOUT_CHAT_METADATA)
+      .single();
+
+    data = fallbackResult.data;
+    error = fallbackResult.error;
+  }
 
   if (error && isMissingRoundGuessTraceColumnError(error.message)) {
     const fallbackResult = await client
@@ -616,6 +906,67 @@ export async function createRoundRecord(
   return nextRound;
 }
 
+export async function createChatRoundRecord(
+  input: CreateChatRoundRecordInput,
+): Promise<Round> {
+  const client = requireSupabase();
+  const roundId = makeRoundId();
+  const correctPhrase = normalizeChatPhrase(input.correctPhrase);
+  const difficulty = computeDifficulty(correctPhrase).difficulty;
+  const sentAt = new Date().toISOString();
+  const originalAudio = await uploadAudio(input.originalAudioBlob, {
+    ownerId: input.currentUserId,
+    roundId,
+    label: 'chat-original',
+  });
+
+  const { data, error } = await client
+    .from('rounds')
+    .insert({
+      id: roundId,
+      round_mode: 'chat',
+      recipient_id: input.recipientId,
+      pack_id: null,
+      correct_phrase: correctPhrase,
+      difficulty,
+      original_audio_path: originalAudio.path,
+      reversed_audio_path: null,
+      guess: null,
+      guess_events: [],
+      guess_mistake_count: 0,
+      chat_gave_up: false,
+      sender_chat_read_at: sentAt,
+      score: null,
+      status: 'waiting_for_attempt',
+    })
+    .select(ROUND_COLUMNS)
+    .single();
+
+  if (error || !data) {
+    throw new Error(
+      `Unable to send the chat recording: ${
+        error ? formatSupabaseError(error, 'Unknown Supabase error.') : 'Unknown error.'
+      }`,
+    );
+  }
+
+  const nextRound = {
+    ...(await mapRoundRow(data as unknown as RoundRow)),
+    originalAudioBlob: input.originalAudioBlob,
+  };
+
+  try {
+    await sendAudioMessagePushNotification(input.recipientId);
+  } catch (pushError) {
+    console.warn(
+      'Unable to send push notification for the new chat recording. The round was created, but the recipient was not notified.',
+      pushError,
+    );
+  }
+
+  return nextRound;
+}
+
 export async function saveRoundAttempt(
   input: SaveRoundAttemptInput,
 ): Promise<Round> {
@@ -625,26 +976,42 @@ export async function saveRoundAttempt(
     roundId: input.roundId,
     label: 'attempt',
   });
+  const attemptReadAt = new Date().toISOString();
+  const updatePayload = {
+    attempt_audio_path: attemptAudio.path,
+    attempt_reversed_path: null,
+    ...(input.roundMode === 'chat'
+      ? {
+          recipient_chat_read_at: attemptReadAt,
+          sender_chat_read_at: null,
+        }
+      : {}),
+    status: 'attempted',
+  };
 
   let { data, error } = await client
     .from('rounds')
-    .update({
-      attempt_audio_path: attemptAudio.path,
-      attempt_reversed_path: null,
-      status: 'attempted',
-    })
+    .update(updatePayload)
     .eq('id', input.roundId)
     .select(ROUND_COLUMNS)
     .single();
 
+  if (error && isMissingRoundChatMetadataColumnError(error.message)) {
+    const fallbackResult = await client
+      .from('rounds')
+      .update(updatePayload)
+      .eq('id', input.roundId)
+      .select(ROUND_COLUMNS_WITHOUT_CHAT_METADATA)
+      .single();
+
+    data = fallbackResult.data;
+    error = fallbackResult.error;
+  }
+
   if (error && isMissingRoundGuessTraceColumnError(error.message)) {
     const fallbackResult = await client
       .from('rounds')
-      .update({
-        attempt_audio_path: attemptAudio.path,
-        attempt_reversed_path: null,
-        status: 'attempted',
-      })
+      .update(updatePayload)
       .eq('id', input.roundId)
       .select(LEGACY_ROUND_COLUMNS)
       .single();
@@ -657,10 +1024,27 @@ export async function saveRoundAttempt(
     throw new Error(`Unable to save the attempt: ${error?.message || 'Unknown error.'}`);
   }
 
-  return {
+  const savedRound = {
     ...(await mapRoundRow(data as unknown as RoundRow)),
     attemptAudioBlob: input.attemptAudioBlob,
   };
+
+  if (input.roundMode === 'chat' && savedRound.senderId !== input.currentUserId) {
+    try {
+      await sendAudioMessagePushNotification(savedRound.senderId);
+    } catch (pushError) {
+      console.warn(
+        'Unable to send push notification for the chat reply. The attempt was saved, but the sender was not notified.',
+        pushError,
+      );
+    }
+  }
+
+  return savedRound;
+}
+
+export async function saveChatRoundAttempt(input: SaveRoundAttemptInput): Promise<Round> {
+  return saveRoundAttempt({ ...input, roundMode: 'chat' });
 }
 
 export async function submitRoundGuess(
@@ -670,7 +1054,7 @@ export async function submitRoundGuess(
   const guess = input.guess.trim();
   const guessMistakeCount = normalizeGuessMistakeCount(input.guessMistakeCount);
   const guessEvents = normalizeRoundGuessEvents(input.guessEvents);
-  const score = scoreGuessByMistakeCount(guessMistakeCount);
+  const score = scoreGuessByTrace(input.correctPhrase, guessEvents, guessMistakeCount);
   let { data, error } = await client.rpc('complete_round_and_award_resources', {
     round_id: input.roundId,
     guess_input: guess,
@@ -695,6 +1079,29 @@ export async function submitRoundGuess(
   if (error || !data) {
     throw new Error(
       `Unable to submit the guess: ${
+        error ? formatSupabaseError(error, 'Unknown Supabase error.') : 'Unknown error.'
+      }`,
+    );
+  }
+
+  return mapRoundRow(data as unknown as RoundRow);
+}
+
+export async function completeChatRound(input: CompleteChatRoundInput): Promise<Round> {
+  const client = requireSupabase();
+  const guessEvents = normalizeRoundGuessEvents(input.guessEvents);
+  const guessMistakeCount = normalizeGuessMistakeCount(input.guessMistakeCount);
+  const { data, error } = await client.rpc('complete_chat_round', {
+    chat_round_id: input.roundId,
+    gave_up_input: input.gaveUp,
+    guess_events_input: guessEvents,
+    guess_input: input.guess.trim(),
+    guess_mistake_count_input: guessMistakeCount,
+  });
+
+  if (error || !data) {
+    throw new Error(
+      `Unable to finish the chat round: ${
         error ? formatSupabaseError(error, 'Unknown Supabase error.') : 'Unknown error.'
       }`,
     );
@@ -733,6 +1140,28 @@ export async function markRoundResultsViewed(roundId: string): Promise<void> {
   if (error) {
     throw new Error(
       `Unable to mark the round results as viewed: ${formatSupabaseError(
+        error,
+        'Unknown Supabase error.',
+      )}`,
+    );
+  }
+}
+
+export async function markChatThreadRead(friendId: string): Promise<void> {
+  const normalizedFriendId = friendId.trim();
+
+  if (!normalizedFriendId) {
+    return;
+  }
+
+  const client = requireSupabase();
+  const { error } = await client.rpc('mark_chat_thread_read', {
+    chat_friend_id: normalizedFriendId,
+  });
+
+  if (error) {
+    throw new Error(
+      `Unable to mark the chat thread as read: ${formatSupabaseError(
         error,
         'Unknown Supabase error.',
       )}`,
@@ -797,6 +1226,17 @@ export async function archiveCompletedRound(
     .select(ROUND_COLUMNS)
     .eq('id', input.roundId)
     .single();
+
+  if (roundError && isMissingRoundChatMetadataColumnError(roundError.message)) {
+    const fallbackResult = await client
+      .from('rounds')
+      .select(ROUND_COLUMNS_WITHOUT_CHAT_METADATA)
+      .eq('id', input.roundId)
+      .single();
+
+    roundData = fallbackResult.data;
+    roundError = fallbackResult.error;
+  }
 
   if (roundError && isMissingRoundGuessTraceColumnError(roundError.message)) {
     const fallbackResult = await client

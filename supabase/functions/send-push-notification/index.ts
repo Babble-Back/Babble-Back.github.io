@@ -17,7 +17,7 @@ interface SendPushRequest {
   type?: PushNotificationType;
 }
 
-type PushNotificationType = 'round_turn' | 'friend_request';
+type PushNotificationType = 'round_turn' | 'friend_request' | 'audio_message';
 
 interface PushSubscriptionRow {
   id: string;
@@ -59,7 +59,15 @@ function getTargetUserId(body: SendPushRequest) {
 
 function getNotificationType(body: SendPushRequest): PushNotificationType {
   const notificationType = body.notificationType ?? body.notification_type ?? body.type;
-  return notificationType === 'friend_request' ? 'friend_request' : 'round_turn';
+  if (notificationType === 'friend_request') {
+    return 'friend_request';
+  }
+
+  if (notificationType === 'audio_message') {
+    return 'audio_message';
+  }
+
+  return 'round_turn';
 }
 
 function getSubscriptionEndpointHost(subscription: webpush.PushSubscription) {
@@ -84,6 +92,14 @@ function buildNotificationContent(
       title: `${senderUsername} sent you a friend request`,
       body: 'Open BackTalk to accept or ignore it.',
       url: './?view=friends',
+    };
+  }
+
+  if (notificationType === 'audio_message') {
+    return {
+      title: `${senderUsername} sent you an audio message`,
+      body: 'Open BackTalk to listen and reply.',
+      url: `./?view=chat&friend=${encodeURIComponent(senderUserId)}`,
     };
   }
 

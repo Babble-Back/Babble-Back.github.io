@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { type FormEvent, useEffect, useState } from 'react';
 import {
   requestPasswordReset,
   signInWithIdentifier,
@@ -125,6 +125,18 @@ export function AuthPanel({
     }
   };
 
+  const canLogin = Boolean(identifier.trim() && password.trim() && activeAction === null);
+
+  const handleLoginSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    if (!canLogin) {
+      return;
+    }
+
+    void handleLogin();
+  };
+
   const handlePasswordResetRequest = async () => {
     setError(null);
     setInfo(null);
@@ -196,7 +208,7 @@ export function AuthPanel({
 
       <div className="stack">
         {mode === 'login' ? (
-          <>
+          <form className="stack" onSubmit={handleLoginSubmit}>
             <div className="field">
               <label htmlFor="authIdentifier">Username or email</label>
               <input
@@ -224,11 +236,8 @@ export function AuthPanel({
             <div className="button-row auth-actions">
               <button
                 className="button primary"
-                disabled={!identifier.trim() || !password.trim() || activeAction !== null}
-                onClick={() => {
-                  void handleLogin();
-                }}
-                type="button"
+                disabled={!canLogin}
+                type="submit"
               >
                 {activeAction === 'login' ? 'Logging in...' : 'Sign in'}
               </button>
@@ -259,7 +268,7 @@ export function AuthPanel({
                 Forgot password?
               </button>
             </div>
-          </>
+          </form>
         ) : mode === 'register' ? (
           <>
             <div className="field-grid two-up">

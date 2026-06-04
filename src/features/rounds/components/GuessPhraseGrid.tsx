@@ -31,6 +31,22 @@ interface GuessReplayPanelProps {
   playbackKey: string;
 }
 
+interface GuessResultGridProps {
+  correctPhrase: string;
+  events?: RoundGuessEvent[] | null;
+  guess: string;
+}
+
+type GuessPhrasePart =
+  | {
+      characters: Array<{ character: string; index: number }>;
+      type: 'word';
+    }
+  | {
+      index: number;
+      type: 'space';
+    };
+
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
 }
@@ -81,6 +97,64 @@ function getReplaySchedule(events: RoundGuessEvent[]) {
   });
 }
 
+function getPlaybackEvents(
+  correctPhrase: string,
+  guess: string,
+  events: RoundGuessEvent[] | null | undefined,
+) {
+  return events && events.length > 0
+    ? events
+    : buildFallbackEvents(correctPhrase, guess);
+}
+
+function buildFinalGuessCells(events: RoundGuessEvent[]) {
+  return events.reduce<GuessCellMap>((cells, event) => {
+    cells[event.index] = {
+      correct: event.correct,
+      value: event.value,
+    };
+
+    return cells;
+  }, {});
+}
+
+function buildGuessPhraseParts(correctPhrase: string) {
+  const parts: GuessPhrasePart[] = [];
+  let currentWord: Array<{ character: string; index: number }> = [];
+
+  Array.from(correctPhrase).forEach((character, index) => {
+    if (isGuessSpacer(character)) {
+      if (currentWord.length > 0) {
+        parts.push({
+          characters: currentWord,
+          type: 'word',
+        });
+        currentWord = [];
+      }
+
+      parts.push({
+        index,
+        type: 'space',
+      });
+      return;
+    }
+
+    currentWord.push({
+      character,
+      index,
+    });
+  });
+
+  if (currentWord.length > 0) {
+    parts.push({
+      characters: currentWord,
+      type: 'word',
+    });
+  }
+
+  return parts;
+}
+
 export function GuessPhraseGrid({
   activeIndex = null,
   ariaLabel = 'Phrase guess',
@@ -88,40 +162,48 @@ export function GuessPhraseGrid({
   className = '',
   correctPhrase,
 }: GuessPhraseGridProps) {
+  const phraseParts = useMemo(() => buildGuessPhraseParts(correctPhrase), [correctPhrase]);
+
   return (
     <div
       aria-label={ariaLabel}
       className={`guess-phrase-grid ${className}`.trim()}
       role="img"
     >
-      {Array.from(correctPhrase).map((character, index) => {
-        if (isGuessSpacer(character)) {
+      {phraseParts.map((part, partIndex) => {
+        if (part.type === 'space') {
           return (
             <span
               aria-hidden="true"
               className="guess-phrase-space"
-              key={`space-${index}`}
+              key={`space-${part.index}`}
             />
           );
         }
 
-        const cell = cells[index];
-        const isFilled = Boolean(cell?.value);
-        const toneClass = isFilled
-          ? cell?.correct
-            ? 'is-correct'
-            : 'is-mistake'
-          : 'is-empty';
-        const activeClass = activeIndex === index ? 'is-active' : '';
-        const shakeClass = cell?.shake ? 'is-shaking' : '';
-
         return (
-          <span
-            aria-hidden="true"
-            className={`guess-phrase-cell ${toneClass} ${activeClass} ${shakeClass}`.trim()}
-            key={`cell-${index}`}
-          >
-            {cell?.value ?? '_'}
+          <span aria-hidden="true" className="guess-phrase-word" key={`word-${partIndex}`}>
+            {part.characters.map(({ index }) => {
+              const cell = cells[index];
+              const isFilled = Boolean(cell?.value);
+              const toneClass = isFilled
+                ? cell?.correct
+                  ? 'is-correct'
+                  : 'is-mistake'
+                : 'is-empty';
+              const activeClass = activeIndex === index ? 'is-active' : '';
+              const shakeClass = cell?.shake ? 'is-shaking' : '';
+
+              return (
+                <span
+                  aria-hidden="true"
+                  className={`guess-phrase-cell ${toneClass} ${activeClass} ${shakeClass}`.trim()}
+                  key={`cell-${index}`}
+                >
+                  {cell?.value ?? '_'}
+                </span>
+              );
+            })}
           </span>
         );
       })}
@@ -137,10 +219,7 @@ export function GuessReplayPanel({
   playbackKey,
 }: GuessReplayPanelProps) {
   const playbackEvents = useMemo(
-    () =>
-      events && events.length > 0
-        ? events
-        : buildFallbackEvents(correctPhrase, guess),
+    () => getPlaybackEvents(correctPhrase, guess, events),
     [correctPhrase, events, guess],
   );
   const [cells, setCells] = useState<GuessCellMap>({});
@@ -193,5 +272,25 @@ export function GuessReplayPanel({
         correctPhrase={correctPhrase}
       />
     </div>
+  );
+}
+
+export function GuessResultGrid({
+  correctPhrase,
+  events,
+  guess,
+}: GuessResultGridProps) {
+  const cells = useMemo(
+    () => buildFinalGuessCells(getPlaybackEvents(correctPhrase, guess, events)),
+    [correctPhrase, events, guess],
+  );
+
+  return (
+    <GuessPhraseGrid
+      ariaLabel="Final guess"
+      cells={cells}
+      className="guess-phrase-grid-final"
+      correctPhrase={correctPhrase}
+    />
   );
 }

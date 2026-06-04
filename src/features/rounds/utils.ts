@@ -90,24 +90,60 @@ export function composeGuessTextFromEvents(
     .trim();
 }
 
-export function starsFromGuessMistakeCount(mistakeCount: number) {
-  if (mistakeCount <= 0) {
+export function getCorrectGuessLetterCount(
+  correctPhrase: string,
+  events: readonly { index: number; value: string }[],
+) {
+  const phraseCharacters = Array.from(correctPhrase);
+  const targetIndexes = new Set(getGuessTargetIndexes(correctPhrase));
+  const correctIndexes = new Set<number>();
+
+  for (const event of events) {
+    if (!targetIndexes.has(event.index)) {
+      continue;
+    }
+
+    if (isGuessCharacterCorrect(event.value, phraseCharacters[event.index] ?? '')) {
+      correctIndexes.add(event.index);
+    }
+  }
+
+  return correctIndexes.size;
+}
+
+export function starsFromGuessTrace(
+  correctPhrase: string,
+  events: readonly { index: number; value: string }[],
+  mistakeCount: number,
+) {
+  const targetLetterCount = getGuessTargetIndexes(correctPhrase).length;
+  const correctLetterCount = getCorrectGuessLetterCount(correctPhrase, events);
+
+  if (targetLetterCount === 0) {
+    return mistakeCount === 0 ? 3 : 0;
+  }
+
+  if (correctLetterCount === targetLetterCount && mistakeCount === 0) {
     return 3;
   }
 
-  if (mistakeCount <= 2) {
+  if (correctLetterCount / targetLetterCount > 2 / 3 && mistakeCount < 2) {
     return 2;
   }
 
-  if (mistakeCount <= maxGuessMistakesForStars) {
+  if (correctLetterCount / targetLetterCount > 1 / 3 && mistakeCount <= maxGuessMistakesForStars) {
     return 1;
   }
 
   return 0;
 }
 
-export function scoreGuessByMistakeCount(mistakeCount: number) {
-  const stars = starsFromGuessMistakeCount(mistakeCount);
+export function scoreGuessByTrace(
+  correctPhrase: string,
+  events: readonly { index: number; value: string }[],
+  mistakeCount: number,
+) {
+  const stars = starsFromGuessTrace(correctPhrase, events, mistakeCount);
 
   if (stars === 3) {
     return 10;

@@ -14,12 +14,14 @@ export interface HomeTableRow {
   friendId?: string;
   requestId?: string;
   requestDirection?: FriendRequestDirection;
+  unreadChatCount?: number;
 }
 
 interface HomePanelProps {
   campaignBannerImage?: string | null;
   rows: HomeTableRow[];
   onCreateGame?: (friendId: string) => void;
+  onOpenChat?: (friendId: string) => void;
   onOpenFriend?: (friendId: string) => void;
   onOpenCampaign?: () => void;
   onOpenLeaderboards?: () => void;
@@ -63,6 +65,25 @@ function InfoIcon() {
   );
 }
 
+function ChatIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      className="game-action-icon"
+      fill="none"
+      viewBox="0 0 12 12"
+    >
+      <path
+        d="M2 3.4C2 2.6 2.7 2 3.5 2h5C9.3 2 10 2.6 10 3.4v2.8c0 .8-.7 1.4-1.5 1.4H5.2L2.8 9.5V7.6C2.3 7.3 2 6.8 2 6.2V3.4Z"
+        stroke="currentColor"
+        strokeLinejoin="round"
+        strokeWidth="1.1"
+      />
+      <path d="M4.2 4.4h3.6M4.2 6h2.2" stroke="currentColor" strokeLinecap="round" strokeWidth="1.1" />
+    </svg>
+  );
+}
+
 function RefreshIcon() {
   return (
     <svg
@@ -93,6 +114,7 @@ export function HomePanel({
   campaignBannerImage,
   rows,
   onCreateGame,
+  onOpenChat,
   onOpenFriend,
   onOpenCampaign,
   onOpenLeaderboards,
@@ -304,6 +326,12 @@ export function HomePanel({
                 const isActionablePlay =
                   row.actionKind === 'start_game' ||
                   (row.actionKind === 'open_friend' && row.actionTone === 'take-turn');
+                const unreadChatCount = Math.max(0, row.unreadChatCount ?? 0);
+                const hasUnreadChat = unreadChatCount > 0;
+                const unreadChatLabel =
+                  unreadChatCount === 1
+                    ? '1 unread audio message'
+                    : `${unreadChatCount} unread audio messages`;
 
                 return (
                   <div className="game-row" key={row.id} role="listitem">
@@ -349,21 +377,44 @@ export function HomePanel({
                           Pending Friend Request
                         </span>
                       ) : (
-                        <button
-                          aria-label={getActionAriaLabel(row)}
-                          className={`button game-action-button ${
-                            row.actionTone === 'take-turn'
-                              ? 'game-action-button-take-turn'
-                              : 'game-action-button-their-turn'
-                          }`}
-                          onClick={() => {
-                            void handleRowAction(row);
-                          }}
-                          type="button"
-                        >
-                          {isActionablePlay ? <PlayIcon /> : <InfoIcon />}
-                          <span>{row.actionLabel}</span>
-                        </button>
+                        <>
+                          <button
+                            aria-label={
+                              hasUnreadChat
+                                ? `Open chat with ${row.username}, ${unreadChatLabel}`
+                                : `Open chat with ${row.username}`
+                            }
+                            className={`button game-chat-button${hasUnreadChat ? ' has-unread' : ''}`}
+                            onClick={() => {
+                              if (row.friendId && onOpenChat) {
+                                onOpenChat(row.friendId);
+                              }
+                            }}
+                            type="button"
+                          >
+                            <ChatIcon />
+                            {hasUnreadChat ? (
+                              <span className="game-chat-unread-badge">
+                                {unreadChatCount > 9 ? '9+' : unreadChatCount}
+                              </span>
+                            ) : null}
+                          </button>
+                          <button
+                            aria-label={getActionAriaLabel(row)}
+                            className={`button game-action-button ${
+                              row.actionTone === 'take-turn'
+                                ? 'game-action-button-take-turn'
+                                : 'game-action-button-their-turn'
+                            }`}
+                            onClick={() => {
+                              void handleRowAction(row);
+                            }}
+                            type="button"
+                          >
+                            {isActionablePlay ? <PlayIcon /> : <InfoIcon />}
+                            <span>{row.actionLabel}</span>
+                          </button>
+                        </>
                       )}
                     </div>
                   </div>

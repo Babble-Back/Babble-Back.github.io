@@ -44,7 +44,12 @@ import {
   isGuessCharacterCorrect,
   isGuessSpacer,
 } from '../utils';
-import { GuessPhraseGrid, GuessReplayPanel, type GuessCellMap } from './GuessPhraseGrid';
+import {
+  GuessPhraseGrid,
+  GuessReplayPanel,
+  GuessResultGrid,
+  type GuessCellMap,
+} from './GuessPhraseGrid';
 import { RoundRewardSequence } from './RoundRewardSequence';
 
 interface PlayRoundPanelProps {
@@ -392,11 +397,13 @@ function RewardPlaybackButton({
   blob,
   isLoading = false,
   loadingLabel = 'Preparing audio...',
+  playbackKind = 'normal',
   remoteUrl,
 }: {
   blob?: Blob | null;
   isLoading?: boolean;
   loadingLabel?: string;
+  playbackKind?: 'normal' | 'babble';
   remoteUrl?: string | null;
 }) {
   const objectUrl = useObjectUrl(blob);
@@ -412,7 +419,12 @@ function RewardPlaybackButton({
 
   return (
     <div className="reward-review-playback">
-      <WaveformPlayButton className="reward-review-play-button" size={86} src={src} />
+      <WaveformPlayButton
+        className="reward-review-play-button"
+        playbackKind={playbackKind}
+        size={86}
+        src={src}
+      />
     </div>
   );
 }
@@ -468,6 +480,7 @@ function RewardAudioWithReaction({
   description,
   isLoading = false,
   loadingLabel = 'Preparing audio...',
+  playbackKind = 'normal',
   reactionLabel,
   reactionMessage,
   remoteUrl,
@@ -477,6 +490,7 @@ function RewardAudioWithReaction({
   description: string;
   isLoading?: boolean;
   loadingLabel?: string;
+  playbackKind?: 'normal' | 'babble';
   reactionLabel: string;
   reactionMessage: string | null | undefined;
   remoteUrl?: string | null;
@@ -495,6 +509,7 @@ function RewardAudioWithReaction({
           blob={blob}
           isLoading={isLoading}
           loadingLabel={loadingLabel}
+          playbackKind={playbackKind}
           remoteUrl={remoteUrl}
         />
         <RoundReactionBubble authorLabel={reactionLabel} message={reactionMessage} />
@@ -1439,6 +1454,7 @@ export function PlayRoundPanel({
     try {
       const updatedRound = await submitRoundGuess({
         roundId: currentRound.id,
+        correctPhrase: currentRound.correctPhrase,
         guess: nextGuess,
         guessEvents: nextEvents,
         guessMistakeCount: nextMistakeCount,
@@ -1760,47 +1776,24 @@ export function PlayRoundPanel({
           <span className="reward-review-label">You said:</span>
           <strong className="reward-review-phrase">{activeRound.correctPhrase}</strong>
         </p>
-        <p className="reward-review-line reward-review-line-guess">
-          <span className="reward-review-label">{activeRound.recipientUsername} guessed:</span>
-          <strong className="reward-review-phrase">{activeRound.guess || 'No guess submitted'}</strong>
-        </p>
-        <div className="reward-reaction-playback-row">
-          <RewardPlaybackButton
-            blob={activeRound.originalAudioBlob}
-            remoteUrl={activeRound.originalAudioUrl}
-          />
-          <RoundReactionThread
-            recipientLabel={recipientReactionLabel}
-            recipientMessage={recipientReactionMessage}
-            senderLabel={senderReactionLabel}
-            senderMessage={senderReactionMessage}
-          />
-        </div>
       </div>
 
       <div className="reward-review-block">
         <p className="reward-review-line">{activeRound.recipientUsername} heard:</p>
         <RewardPlaybackButton
-          blob={reversedPromptBlob}
-          isLoading={isLoadingReversedPrompt}
-          loadingLabel="Preparing reversed prompt..."
-        />
-      </div>
-
-      <div className="reward-review-block">
-        <p className="reward-review-line">{activeRound.recipientUsername} Babbled:</p>
-        <RewardPlaybackButton
-          blob={activeRound.attemptAudioBlob}
-          remoteUrl={activeRound.attemptAudioUrl}
-        />
-      </div>
-
-      <div className="reward-review-block">
-        <p className="reward-review-line">{activeRound.recipientUsername} Babble reversed:</p>
-        <RewardPlaybackButton
           blob={reversedAttemptBlob}
           isLoading={isLoadingReversedAttempt}
           loadingLabel="Preparing reversed take..."
+          playbackKind="babble"
+        />
+      </div>
+
+      <div className="reward-review-block">
+        <p className="reward-review-line">They Guessed:</p>
+        <GuessResultGrid
+          correctPhrase={activeRound.correctPhrase}
+          events={activeRound.guessEvents}
+          guess={activeRound.guess}
         />
       </div>
     </div>
@@ -1907,6 +1900,7 @@ export function PlayRoundPanel({
         title="Their imitation"
         description="Your friend's attempt at copying the reversed prompt."
         blob={activeRound.attemptAudioBlob}
+        playbackKind="babble"
         remoteUrl={activeRound.attemptAudioUrl}
       />
       <AudioPlayerCard
@@ -1915,6 +1909,7 @@ export function PlayRoundPanel({
         blob={reversedAttemptBlob}
         isLoading={isLoadingReversedAttempt}
         loadingLabel="Preparing reversed take..."
+        playbackKind="babble"
       />
     </div>
   );
@@ -2080,6 +2075,7 @@ export function PlayRoundPanel({
                     : 'Your saved imitation appears here after recording.'
                 }
                 blob={recorder.audioBlob ?? round.attemptAudioBlob}
+                playbackKind="babble"
                 remoteUrl={round.attemptAudioUrl}
               />
             </div>
@@ -2093,6 +2089,7 @@ export function PlayRoundPanel({
                 blob={reversedAttemptBlob}
                 isLoading={isLoadingReversedAttempt}
                 loadingLabel="Preparing reversed take..."
+                playbackKind="babble"
               />
 
               <div

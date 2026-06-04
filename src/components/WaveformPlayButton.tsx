@@ -2,6 +2,14 @@ import { useEffect, useId, useMemo, useRef, useState, type CSSProperties } from 
 
 const FULL_CIRCLE = Math.PI * 2;
 const TARGET_FRAME_MS = 1000 / 48;
+const NORMAL_GRADIENT_STOPS = [
+  ['0%', '#2ad6d9'],
+  ['18%', '#1b8dff'],
+  ['36%', '#6b5cff'],
+  ['54%', '#f12cb4'],
+  ['74%', '#ff7b4f'],
+  ['100%', '#b6de3f'],
+] as const;
 
 export type PlaybackStartKind = 'new' | 'resume';
 
@@ -10,6 +18,7 @@ export interface WaveformPlayButtonProps {
   size?: number;
   strokeWidth?: number;
   className?: string;
+  playbackKind?: 'normal' | 'babble';
   autoPlay?: boolean;
   onPlay?: () => void;
   onPause?: () => void;
@@ -96,6 +105,7 @@ export function WaveformPlayButton({
   size = 80,
   strokeWidth = 4,
   className,
+  playbackKind = 'normal',
   autoPlay = false,
   onPlay,
   onPause,
@@ -110,6 +120,7 @@ export function WaveformPlayButton({
   liveStream = null,
   disabled = false,
 }: WaveformPlayButtonProps) {
+  const isBabblePlayback = mode === 'playback' && playbackKind === 'babble';
   const gradientId = useId();
   const pathRef = useRef<SVGPathElement | null>(null);
   const rafRef = useRef<number | null>(null);
@@ -410,15 +421,19 @@ export function WaveformPlayButton({
     'waveform-play-button',
     showActiveState ? 'is-playing' : '',
     mode === 'record' ? 'is-record-control' : '',
+    isBabblePlayback ? 'is-babble-playback' : '',
     className,
   ]
     .filter(Boolean)
     .join(' ');
 
+  const playShapePoints = `${size * 0.435},${size * 0.375} ${size * 0.435},${size * 0.625} ${size * 0.635},${size * 0.5}`;
+
   return (
     <button
       aria-label={mode === 'playback' ? (isPlaying ? 'Pause audio' : 'Play audio') : showActiveState ? activeAriaLabel : inactiveAriaLabel}
       className={composedClassName}
+      data-playback-kind={isBabblePlayback ? 'babble' : mode}
       disabled={disabled || isAuthorizingPlay}
       onClick={() => {
         if (mode === 'record') {
@@ -450,12 +465,9 @@ export function WaveformPlayButton({
             y1={size * 0.12}
             y2={size * 0.88}
           >
-            <stop offset="0%" stopColor="#2ad6d9" />
-            <stop offset="18%" stopColor="#1b8dff" />
-            <stop offset="36%" stopColor="#6b5cff" />
-            <stop offset="54%" stopColor="#f12cb4" />
-            <stop offset="74%" stopColor="#ff7b4f" />
-            <stop offset="100%" stopColor="#b6de3f" />
+            {NORMAL_GRADIENT_STOPS.map(([offset, stopColor]) => (
+              <stop key={`${offset}-${stopColor}`} offset={offset} stopColor={stopColor} />
+            ))}
           </linearGradient>
         </defs>
 
@@ -473,7 +485,7 @@ export function WaveformPlayButton({
           <polygon
             className="waveform-icon-play-shape"
             fill={`url(#${gradientId})`}
-            points={`${size * 0.435},${size * 0.375} ${size * 0.435},${size * 0.625} ${size * 0.635},${size * 0.5}`}
+            points={playShapePoints}
           />
 
           <g className="waveform-icon-pause-shape" fill={`url(#${gradientId})`}>

@@ -5,6 +5,7 @@ import { WaveformLoader } from './components/WaveformLoader';
 import { CampaignPanel } from './features/campaign/components/CampaignPanel';
 import { PublicHomePage } from './features/public/components/PublicHomePage';
 import { InventoryPanel } from './features/resources/components/InventoryPanel';
+import { ChatThreadPanel } from './features/rounds/components/ChatThreadPanel';
 import { CreateRoundPanel } from './features/rounds/components/CreateRoundPanel';
 import { FriendMatchLeaderboardsModal } from './features/rounds/components/FriendMatchLeaderboardsModal';
 import { HomePanel, type HomeTableRow } from './features/rounds/components/HomePanel';
@@ -35,7 +36,7 @@ import { hasInitialPasswordRecoveryLink, supabaseConfigError } from './lib/supab
 import { InstallAppPrompt } from './pwa/InstallAppPrompt';
 import { CoinDisplay, ResourceProvider } from './features/resources/ResourceProvider';
 
-type View = 'home' | 'thread';
+type View = 'home' | 'thread' | 'chat';
 type AppPath = '/' | '/auth' | '/campaign' | '/inventory';
 interface AppRoute {
   appPath: AppPath;
@@ -57,6 +58,14 @@ function createThreadRoute(friendId: string): AppRoute {
   return {
     appPath: '/',
     view: 'thread',
+    friendId,
+  };
+}
+
+function createChatRoute(friendId: string): AppRoute {
+  return {
+    appPath: '/',
+    view: 'chat',
     friendId,
   };
 }
@@ -98,6 +107,7 @@ interface ThreadSummary {
   averageStars: number | null;
   canCurrentUserStart: boolean;
   canRecipientComposeNext: boolean;
+  chatUnreadCount: number;
   displayRound: RoundSummary | null;
   friend: Friend;
   lastActiveAt: string | null;
@@ -153,10 +163,10 @@ function getAppRoute(): AppRoute {
   const searchParams = new URLSearchParams(window.location.search);
   const requestedView = searchParams.get('view');
 
-  if (requestedView === 'thread') {
+  if (requestedView === 'thread' || requestedView === 'chat') {
     const friendId = searchParams.get('friend')?.trim() || null;
     if (friendId) {
-      return createThreadRoute(friendId);
+      return requestedView === 'chat' ? createChatRoute(friendId) : createThreadRoute(friendId);
     }
   }
 
@@ -172,8 +182,8 @@ function buildAppRouteUrl(route: AppRoute) {
   }
 
   const searchParams = new URLSearchParams();
-  if (route.view === 'thread' && route.friendId) {
-    searchParams.set('view', 'thread');
+  if ((route.view === 'thread' || route.view === 'chat') && route.friendId) {
+    searchParams.set('view', route.view);
     searchParams.set('friend', route.friendId);
   }
 
@@ -259,6 +269,20 @@ function FullscreenLoadingScreen() {
         <p>Loading...</p>
       </div>
     </main>
+  );
+}
+
+function BackArrowIcon() {
+  return (
+    <svg aria-hidden="true" fill="none" viewBox="0 0 24 24">
+      <path
+        d="M13 6 7 12l6 6M8 12h10"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="2.8"
+      />
+    </svg>
   );
 }
 
@@ -414,7 +438,7 @@ function App() {
   const dataRefreshInFlightRef = useRef(false);
   const showSecureContextWarning =
     typeof window !== 'undefined' && !window.isSecureContext;
-  const isThreadRoute = appPath === '/' && view === 'thread';
+  const isThreadRoute = appPath === '/' && (view === 'thread' || view === 'chat');
 
   const applyRouteState = useCallback(
     (
@@ -476,7 +500,12 @@ function App() {
     }
 
     if (!currentUserId) {
-      if (appPath === '/campaign' || appPath === '/inventory' || view === 'thread') {
+      if (
+        appPath === '/campaign' ||
+        appPath === '/inventory' ||
+        view === 'thread' ||
+        view === 'chat'
+      ) {
         navigateToRoute(createHomeRoute(), { replace: true });
       }
 
@@ -770,6 +799,7 @@ function App() {
           averageStars: friend.averageStars ?? null,
           canCurrentUserStart,
           canRecipientComposeNext,
+          chatUnreadCount: threadData?.chatUnreadCount ?? 0,
           displayRound,
           friend,
           lastActiveAt: threadData?.lastActiveAt ?? friend.lastCompletedAt ?? friend.createdAt,
@@ -805,6 +835,14 @@ function App() {
 
     return selectedRound;
   }, [currentUserId, selectedRound, selectedThread]);
+  const selectedRoundForSelectedThreadIsChat =
+    selectedRoundForSelectedThread?.roundMode === 'chat';
+  const selectedClassicRoundForSelectedThread = selectedRoundForSelectedThreadIsChat
+    ? null
+    : selectedRoundForSelectedThread;
+  const selectedClassicDisplayRound = selectedRoundForSelectedThreadIsChat
+    ? null
+    : (selectedThread?.displayRound ?? null);
 
   useEffect(() => {
     if (appPath !== '/' || view !== 'thread' || !selectedFriendId) {
@@ -871,6 +909,10 @@ function App() {
     navigateToRoute(createThreadRoute(friendId));
   };
 
+  const handleOpenChat = (friendId: string) => {
+    navigateToRoute(createChatRoute(friendId));
+  };
+
   const handleCreateGame = (friendId: string) => {
     navigateToRoute(createThreadRoute(friendId), { resetCompose: false });
     setIsComposingNextRound(true);
@@ -900,7 +942,7 @@ function App() {
   }, [refreshAppData]);
 
   const handleBackFromCreateRound = () => {
-    if (selectedThread?.displayRound || selectedRoundForSelectedThread) {
+    if (selectedClassicDisplayRound || selectedClassicRoundForSelectedThread) {
       setIsComposingNextRound(false);
       return;
     }
@@ -973,6 +1015,7 @@ function App() {
           actionLabel: shouldStartGame ? 'Start Game' : isYourTurn ? 'Take Turn' : 'Their Turn',
           actionTone: shouldStartGame || isYourTurn ? 'take-turn' : 'their-turn',
           friendId: thread.friend.id,
+          unreadChatCount: thread.chatUnreadCount,
           sortAt: thread.lastActiveAt ?? thread.friend.createdAt,
           sortRank: shouldStartGame ? 2 : isYourTurn ? 1 : 3,
         };
@@ -1061,7 +1104,7 @@ function App() {
                   onClick={handleOpenHome}
                   type="button"
                 >
-                  <span aria-hidden="true">←</span>
+                  <BackArrowIcon />
                 </button>
               ) : (
                 <button
@@ -1144,9 +1187,23 @@ function App() {
                   rows={homeRows}
                   onCreateGame={handleCreateGame}
                   onOpenCampaign={handleOpenCampaign}
+                  onOpenChat={handleOpenChat}
                   onOpenFriend={handleSelectFriend}
                   onOpenLeaderboards={() => setIsFriendLeaderboardsOpen(true)}
                   onRefresh={handleHomeRefresh}
+                />
+              ) : null}
+              {appPath === '/' &&
+              view === 'chat' &&
+              profile &&
+              selectedThread &&
+              !isComposingNextRound ? (
+                <ChatThreadPanel
+                  currentUserId={currentUserId}
+                  currentUserUsername={profile.username}
+                  friend={selectedThread.friend}
+                  onBack={handleOpenHome}
+                  onThreadChanged={handleHomeRefresh}
                 />
               ) : null}
               {appPath === '/' &&
@@ -1154,15 +1211,17 @@ function App() {
               profile &&
               selectedThread &&
               !isComposingNextRound &&
-              (selectedRoundForSelectedThread || selectedThread.displayRound || isLoadingSelectedRound) ? (
+              (selectedClassicRoundForSelectedThread ||
+                selectedClassicDisplayRound ||
+                isLoadingSelectedRound) ? (
                 <PlayRoundPanel
                   currentUserId={currentUserId}
-                  isLoadingRound={isLoadingSelectedRound && !selectedRoundForSelectedThread}
+                  isLoadingRound={isLoadingSelectedRound && !selectedClassicRoundForSelectedThread}
                   onArchiveRound={handleArchiveRound}
                   onBack={handleOpenHome}
                   onComposeNextRound={() => setIsComposingNextRound(true)}
                   onUpdateRound={handleUpdateRound}
-                  round={selectedRoundForSelectedThread}
+                  round={selectedClassicRoundForSelectedThread}
                 />
               ) : null}
               {appPath === '/' &&
@@ -1170,8 +1229,8 @@ function App() {
               profile &&
               selectedThread &&
               (isComposingNextRound ||
-                (!selectedThread.displayRound &&
-                  !selectedRoundForSelectedThread &&
+                (!selectedClassicDisplayRound &&
+                  !selectedClassicRoundForSelectedThread &&
                   selectedThread.canCurrentUserStart)) ? (
                 <CreateRoundPanel
                   currentUserId={profile.id}
@@ -1184,8 +1243,8 @@ function App() {
               {appPath === '/' &&
               view === 'thread' &&
               selectedThread &&
-              !selectedThread.displayRound &&
-              !selectedRoundForSelectedThread &&
+              !selectedClassicDisplayRound &&
+              !selectedClassicRoundForSelectedThread &&
               !isLoadingSelectedRound &&
               !isComposingNextRound &&
               !selectedThread.canCurrentUserStart ? (
