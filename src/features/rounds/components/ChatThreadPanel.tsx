@@ -4,6 +4,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type ChangeEvent,
   type KeyboardEvent,
   type ReactNode,
 } from 'react';
@@ -750,6 +751,18 @@ function ChatGuessTray({
     handleGuessCharacter(event.key);
   };
 
+  const handleGuessInputChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const nextCharacter = Array.from(event.currentTarget.value).find(
+      (character) => !isGuessSpacer(character),
+    );
+
+    event.currentTarget.value = '';
+
+    if (nextCharacter) {
+      handleGuessCharacter(nextCharacter);
+    }
+  };
+
   const handleGiveUp = () => {
     if (isSubmitting) {
       return;
@@ -782,7 +795,7 @@ function ChatGuessTray({
         <div
           aria-label="Guess what your friend said"
           className={`guess-board chat-guess-board${isGuessInputDisabled ? ' is-disabled' : ''}`}
-          onClick={() => guessInputRef.current?.focus()}
+          onClick={() => guessInputRef.current?.focus({ preventScroll: true })}
           onKeyDown={handleGuessKeyDown}
           role="group"
           tabIndex={isGuessInputDisabled ? -1 : 0}
@@ -801,10 +814,12 @@ function ChatGuessTray({
             autoFocus
             className="guess-board-input"
             disabled={isGuessInputDisabled}
+            enterKeyHint="done"
             inputMode="text"
-            onChange={() => undefined}
+            onChange={handleGuessInputChange}
             ref={guessInputRef}
             spellCheck={false}
+            type="text"
             value=""
           />
         </div>

@@ -4,6 +4,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type ChangeEvent,
   type KeyboardEvent,
   type CSSProperties,
   type FormEvent,
@@ -979,7 +980,6 @@ export function PlayRoundPanel({
       round.status === 'complete' ||
       isSubmittingGuess ||
       isGuessLocked ||
-      isGuessAnimating ||
       isLoadingReversedAttempt ||
       !reversedAttemptBlob,
   );
@@ -1266,7 +1266,16 @@ export function PlayRoundPanel({
       return;
     }
 
-    guessInputRef.current?.focus();
+    const focusGuessInput = () => {
+      guessInputRef.current?.focus({ preventScroll: true });
+    };
+    const frame = window.requestAnimationFrame(focusGuessInput);
+    const timeout = window.setTimeout(focusGuessInput, 80);
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.clearTimeout(timeout);
+    };
   }, [isGuessAnimating, isGuessLocked, isSubmittingGuess, recipientStage, round?.id]);
 
   useEffect(() => {
@@ -1580,6 +1589,18 @@ export function PlayRoundPanel({
 
     event.preventDefault();
     handleGuessCharacter(event.key);
+  };
+
+  const handleGuessInputChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const nextCharacter = Array.from(event.currentTarget.value).find(
+      (character) => !isGuessSpacer(character),
+    );
+
+    event.currentTarget.value = '';
+
+    if (nextCharacter) {
+      handleGuessCharacter(nextCharacter);
+    }
   };
 
   const handleListenSpendAnimationComplete = useCallback(
@@ -2082,7 +2103,7 @@ export function PlayRoundPanel({
           ) : null}
 
           {recipientStage === 'guess' ? (
-            <div className="round-screen-step">
+            <div className="round-screen-step round-guess-step">
               <AudioPlayerCard
                 title="Reversed take"
                 description=""
@@ -2096,7 +2117,7 @@ export function PlayRoundPanel({
                 aria-label="Type the phrase"
                 className={`guess-board${isGuessInputDisabled ? ' is-disabled' : ''}`}
                 onClick={() => {
-                  guessInputRef.current?.focus();
+                  guessInputRef.current?.focus({ preventScroll: true });
                 }}
                 onKeyDown={handleGuessKeyDown}
                 role="group"
@@ -2115,10 +2136,12 @@ export function PlayRoundPanel({
                   autoCorrect="off"
                   className="guess-board-input"
                   disabled={isGuessInputDisabled}
+                  enterKeyHint="done"
                   inputMode="text"
-                  onChange={() => undefined}
+                  onChange={handleGuessInputChange}
                   ref={guessInputRef}
                   spellCheck={false}
+                  type="text"
                   value=""
                 />
               </div>
