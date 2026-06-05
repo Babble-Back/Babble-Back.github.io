@@ -1,5 +1,5 @@
-export const maxGuessMistakesForStars = 4;
-export const failedGuessMistakeCount = maxGuessMistakesForStars + 1;
+export const failedGuessMistakeCount = 5;
+export const maxGuessMistakesForStars = failedGuessMistakeCount - 1;
 
 export function normalizeGuess(value: string) {
   return value
@@ -123,16 +123,32 @@ export function starsFromGuessTrace(
     return mistakeCount === 0 ? 3 : 0;
   }
 
-  if (correctLetterCount === targetLetterCount && mistakeCount === 0) {
-    return 3;
+  if (correctLetterCount === targetLetterCount) {
+    if (mistakeCount === 0) {
+      return 3;
+    }
+
+    if (mistakeCount < 3) {
+      return 2;
+    }
+
+    if (mistakeCount < failedGuessMistakeCount) {
+      return 1;
+    }
+
+    return 0;
   }
 
-  if (correctLetterCount / targetLetterCount > 2 / 3 && mistakeCount < 2) {
-    return 2;
-  }
+  if (mistakeCount >= failedGuessMistakeCount) {
+    const correctRatio = correctLetterCount / targetLetterCount;
 
-  if (correctLetterCount / targetLetterCount > 1 / 3 && mistakeCount <= maxGuessMistakesForStars) {
-    return 1;
+    if (correctRatio > 0.75) {
+      return 2;
+    }
+
+    if (correctRatio > 0.5) {
+      return 1;
+    }
   }
 
   return 0;

@@ -27,6 +27,7 @@ import type { Round, RoundGuessEvent } from '../types';
 import {
   composeGuessTextFromEntries,
   composeGuessTextFromEvents,
+  failedGuessMistakeCount,
   getGuessTargetIndexes,
   isGuessCharacterCorrect,
   isGuessSpacer,
@@ -591,8 +592,9 @@ function ChatGuessTray({
   const activeGuessIndex = guessTargetIndexes[guessEntries.length] ?? null;
   const isGuessComplete =
     guessTargetIndexes.length > 0 && guessEntries.length >= guessTargetIndexes.length;
+  const isGuessFailed = guessMistakeCount >= failedGuessMistakeCount;
   const isGuessInputDisabled =
-    isSubmitting || !reversedAttemptBlob;
+    isSubmitting || isGuessFailed || !reversedAttemptBlob;
 
   useEffect(() => {
     setGuessEntries([]);
@@ -666,6 +668,7 @@ function ChatGuessTray({
       isGuessInputDisabled ||
       isGuessAnimating ||
       isGuessComplete ||
+      isGuessFailed ||
       isGuessSpacer(rawCharacter) ||
       round.recipientId !== currentUserId
     ) {
@@ -706,6 +709,7 @@ function ChatGuessTray({
     };
     const nextEntries = correct ? [...guessEntries, nextEntry] : guessEntries;
     const nextEvents = [...guessEvents, nextEvent];
+    const didFailGuess = nextMistakeCount >= failedGuessMistakeCount;
     const didCompleteGuess = correct && nextEntries.length >= guessTargetIndexes.length;
 
     if (feedbackTimerRef.current) {
@@ -726,7 +730,7 @@ function ChatGuessTray({
       setGuessFeedback(null);
       setIsGuessAnimating(false);
 
-      if (didCompleteGuess) {
+      if (didCompleteGuess || didFailGuess) {
         void finishRound({
           entries: nextEntries,
           events: nextEvents,

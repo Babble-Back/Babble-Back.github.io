@@ -1551,7 +1551,13 @@ export function PlayRoundPanel({
     if (didFailGuess) {
       setIsGuessLocked(true);
       guessFeedbackTimerRef.current = setTimeout(() => {
+        setGuessFeedback(null);
         setIsGuessAnimating(false);
+        void handleSubmitGuess({
+          entries: nextEntries,
+          events: nextEvents,
+          mistakeCount: nextMistakeCount,
+        });
       }, 540);
       return;
     }
