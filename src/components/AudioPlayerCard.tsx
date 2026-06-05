@@ -10,6 +10,7 @@ interface AudioPlayerCardProps {
   loadingLabel?: string;
   remoteUrl?: string | null;
   playButtonDisabled?: boolean;
+  playButtonSize?: number;
   playbackKind?: WaveformPlayButtonProps['playbackKind'];
   onPlayRequest?: WaveformPlayButtonProps['onPlayRequest'];
 }
@@ -23,6 +24,7 @@ export function AudioPlayerCard({
   loadingLabel = 'Preparing audio...',
   remoteUrl,
   playButtonDisabled = false,
+  playButtonSize = 86,
   playbackKind = 'normal',
   onPlayRequest,
 }: AudioPlayerCardProps) {
@@ -44,7 +46,7 @@ export function AudioPlayerCard({
             disabled={playButtonDisabled}
             onPlayRequest={onPlayRequest}
             playbackKind={playbackKind}
-            size={86}
+            size={playButtonSize}
             src={src}
           />
         </div>

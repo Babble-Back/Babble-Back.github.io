@@ -779,16 +779,22 @@ function ChatGuessTray({
   return (
     <div className="chat-input-tray chat-guess-tray">
       <div className="chat-guess-card-head">
-        <span className="chat-guess-card-icon" aria-hidden="true">
-          <ChatIcon />
-        </span>
-        <strong>Guess the phrase!</strong>
+        <div className="chat-guess-card-title">
+          <span className="chat-guess-card-icon" aria-hidden="true">
+            <ChatIcon />
+          </span>
+          <strong>Guess the phrase!</strong>
+        </div>
+        <button className="button ghost chat-give-up-button" disabled={isSubmitting} onClick={handleGiveUp} type="button">
+          Give up
+        </button>
       </div>
 
       <div className="chat-guess-combo-bubble">
         <AudioPlayerCard
           title="Your take backwards"
           blob={reversedAttemptBlob}
+          playButtonSize={74}
           playbackKind="babble"
         />
 
@@ -823,12 +829,6 @@ function ChatGuessTray({
             value=""
           />
         </div>
-      </div>
-
-      <div className="button-row chat-tray-actions">
-        <button className="button ghost chat-give-up-button" disabled={isSubmitting} onClick={handleGiveUp} type="button">
-          Give up
-        </button>
       </div>
 
       {error ? <div className="error-banner">{error}</div> : null}
