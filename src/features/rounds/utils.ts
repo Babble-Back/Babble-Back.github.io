@@ -17,6 +17,10 @@ export function isGuessSpacer(value: string) {
   return /^\s$/u.test(value);
 }
 
+export function isGuessTargetCharacter(value: string) {
+  return /^\p{L}$/u.test(value);
+}
+
 export function normalizeGuessCharacter(value: string) {
   const normalizedValue = value
     .normalize('NFKC')
@@ -33,7 +37,7 @@ export function isGuessCharacterCorrect(value: string, expected: string) {
 
 export function getGuessTargetIndexes(correctPhrase: string) {
   return Array.from(correctPhrase).reduce<number[]>((indexes, character, index) => {
-    if (!isGuessSpacer(character)) {
+    if (isGuessTargetCharacter(character)) {
       indexes.push(index);
     }
 
@@ -42,7 +46,7 @@ export function getGuessTargetIndexes(correctPhrase: string) {
 }
 
 export function extractGuessCharacters(value: string) {
-  return Array.from(value).filter((character) => !isGuessSpacer(character));
+  return Array.from(value).filter(isGuessTargetCharacter);
 }
 
 export function composeGuessTextFromEntries(
@@ -53,7 +57,7 @@ export function composeGuessTextFromEntries(
 
   return Array.from(correctPhrase)
     .map((character) => {
-      if (isGuessSpacer(character)) {
+      if (!isGuessTargetCharacter(character)) {
         return character;
       }
 
@@ -79,7 +83,7 @@ export function composeGuessTextFromEvents(
 
   return Array.from(correctPhrase)
     .map((character, index) => {
-      if (isGuessSpacer(character)) {
+      if (!isGuessTargetCharacter(character)) {
         return character;
       }
 

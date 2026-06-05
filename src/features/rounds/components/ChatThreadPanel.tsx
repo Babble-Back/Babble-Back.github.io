@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
   type ChangeEvent,
+  type FormEvent,
   type KeyboardEvent,
   type ReactNode,
 } from 'react';
@@ -30,7 +31,7 @@ import {
   failedGuessMistakeCount,
   getGuessTargetIndexes,
   isGuessCharacterCorrect,
-  isGuessSpacer,
+  isGuessTargetCharacter,
 } from '../utils';
 import {
   GuessPhraseGrid,
@@ -53,6 +54,7 @@ interface GuessEntry {
   phraseIndex: number;
   value: string;
   correct: boolean;
+  animationKey?: number;
   shake?: boolean;
 }
 
@@ -363,12 +365,14 @@ function getBubbleStatus(round: Round, isOutgoing: boolean) {
 
 function ChatRoundBubble({
   currentUserId,
+  onRoundResultsViewed,
   onSelectActionRound,
   preparedAudio,
   rowRef,
   round,
 }: {
   currentUserId: string;
+  onRoundResultsViewed?: (roundId: string) => void;
   onSelectActionRound?: (roundId: string) => void;
   preparedAudio: PreparedChatRoundAudio;
   rowRef?: (element: HTMLElement | null) => void;
@@ -378,7 +382,9 @@ function ChatRoundBubble({
   const collapsed = isCollapsedTranscript(round);
   const statusLabel = getBubbleStatus(round, isOutgoing);
   const createdTime = formatMessageTime(round.createdAt);
-  const handleReplayComplete = useCallback(() => undefined, []);
+  const handleReplayComplete = useCallback(() => {
+    onRoundResultsViewed?.(round.id);
+  }, [onRoundResultsViewed, round.id]);
   const { reversedAttemptBlob, reversedPromptBlob } = preparedAudio;
   const shouldSelectOnPlay =
     !isOutgoing && (round.status === 'waiting_for_attempt' || round.status === 'attempted');
@@ -571,6 +577,7 @@ function ChatGuessTray({
   const guessCells = useMemo<GuessCellMap>(() => {
     const cells = guessEntries.reduce<GuessCellMap>((nextCells, entry) => {
       nextCells[entry.phraseIndex] = {
+        animationKey: entry.animationKey,
         correct: entry.correct,
         shake: entry.shake,
         value: entry.value,
@@ -581,6 +588,7 @@ function ChatGuessTray({
 
     if (guessFeedback) {
       cells[guessFeedback.phraseIndex] = {
+        animationKey: guessFeedback.animationKey,
         correct: guessFeedback.correct,
         shake: guessFeedback.shake,
         value: guessFeedback.value,
@@ -666,10 +674,9 @@ function ChatGuessTray({
   const handleGuessCharacter = (rawCharacter: string) => {
     if (
       isGuessInputDisabled ||
-      isGuessAnimating ||
       isGuessComplete ||
       isGuessFailed ||
-      isGuessSpacer(rawCharacter) ||
+      !isGuessTargetCharacter(rawCharacter) ||
       round.recipientId !== currentUserId
     ) {
       return;
@@ -687,6 +694,7 @@ function ChatGuessTray({
     const correct = isGuessCharacterCorrect(value, expected);
     const nextMistakeCount = guessMistakeCount + (correct ? 0 : 1);
     const now = typeof performance === 'undefined' ? Date.now() : performance.now();
+    const animationKey = guessEvents.length + 1;
 
     if (guessStartedAtRef.current === null) {
       guessStartedAtRef.current = now;
@@ -696,6 +704,7 @@ function ChatGuessTray({
       phraseIndex: targetIndex,
       value,
       correct,
+      animationKey,
       shake: !correct,
     };
     const nextEvent: RoundGuessEvent = {
@@ -721,12 +730,11 @@ function ChatGuessTray({
     setGuessEvents(nextEvents);
     setGuessMistakeCount(nextMistakeCount);
     setIsGuessAnimating(true);
+    if (correct) {
+      setGuessEntries(nextEntries);
+    }
 
     feedbackTimerRef.current = window.setTimeout(() => {
-      if (correct) {
-        setGuessEntries(nextEntries);
-      }
-
       setGuessFeedback(null);
       setIsGuessAnimating(false);
 
@@ -757,7 +765,7 @@ function ChatGuessTray({
 
   const handleGuessInputChange = (event: ChangeEvent<HTMLInputElement>) => {
     const nextCharacter = Array.from(event.currentTarget.value).find(
-      (character) => !isGuessSpacer(character),
+      isGuessTargetCharacter,
     );
 
     event.currentTarget.value = '';
@@ -948,6 +956,11 @@ function ChatComposerTray({
     }
   };
 
+  const handlePhraseSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    void handleEnterRecordStage();
+  };
+
   const handleSendPrompt = async () => {
     if (!recorder.audioBlob) {
       return;
@@ -979,10 +992,11 @@ function ChatComposerTray({
 
   if (stage === 'phrase') {
     return (
-      <div className="chat-input-tray chat-compose-tray">
+      <form className="chat-input-tray chat-compose-tray" onSubmit={handlePhraseSubmit}>
         <div className="field chat-phrase-field">
           <input
             aria-label={`Message ${friend.username}`}
+            enterKeyHint="send"
             id="chatPhrase"
             maxLength={maxChatPhraseLength}
             onChange={(event) => setPhraseDraft(event.target.value)}
@@ -995,16 +1009,13 @@ function ChatComposerTray({
             aria-label={`Record message for ${friend.username}`}
             className="button primary chat-compose-send-button"
             disabled={!canRecord}
-            onClick={() => {
-              void handleEnterRecordStage();
-            }}
-            type="button"
+            type="submit"
           >
             <SendIcon />
           </button>
         </div>
         {error ? <div className="error-banner">{error}</div> : null}
-      </div>
+      </form>
     );
   }
 
@@ -1326,6 +1337,7 @@ export function ChatThreadPanel({
       (round) =>
         round.status === 'complete' &&
         round.roundMode === 'chat' &&
+        round.recipientId === currentUserId &&
         !hasCurrentUserViewedRound(round, currentUserId),
     );
     const nextKey = roundsToMark.map((round) => round.id).join(',');
@@ -1361,6 +1373,33 @@ export function ChatThreadPanel({
       cancelled = true;
     };
   }, [currentUserId, loadRounds, rounds]);
+
+  const handleRoundResultsViewed = useCallback(
+    (roundId: string) => {
+      const round = rounds.find((candidateRound) => candidateRound.id === roundId);
+
+      if (!round || hasCurrentUserViewedRound(round, currentUserId)) {
+        return;
+      }
+
+      const markViewed = async () => {
+        try {
+          await markRoundResultsViewed(roundId);
+          await loadRounds({ silent: true });
+          void onThreadChanged?.();
+        } catch (caughtError) {
+          setError(
+            caughtError instanceof Error
+              ? caughtError.message
+              : 'Unable to update viewed chat results.',
+          );
+        }
+      };
+
+      void markViewed();
+    },
+    [currentUserId, loadRounds, onThreadChanged, rounds],
+  );
 
   const handleRoundCreated = (round: Round) => {
     setRounds((currentRounds) => upsertRound(currentRounds, round));
@@ -1460,6 +1499,7 @@ export function ChatThreadPanel({
               <ChatRoundBubble
                 currentUserId={currentUserId}
                 key={round.id}
+                onRoundResultsViewed={handleRoundResultsViewed}
                 onSelectActionRound={setSelectedActionRoundId}
                 preparedAudio={preparedAudioByRoundId[round.id] ?? EMPTY_PREPARED_CHAT_AUDIO}
                 rowRef={(element) => {

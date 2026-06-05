@@ -43,7 +43,7 @@ import {
   failedGuessMistakeCount,
   getGuessTargetIndexes,
   isGuessCharacterCorrect,
-  isGuessSpacer,
+  isGuessTargetCharacter,
 } from '../utils';
 import {
   GuessPhraseGrid,
@@ -69,6 +69,7 @@ interface GuessEntry {
   phraseIndex: number;
   value: string;
   correct: boolean;
+  animationKey?: number;
   shake?: boolean;
 }
 
@@ -167,6 +168,17 @@ function clearRewardAnimationState(userId: string, roundId: string) {
 
 function formatFreeListenLabel(count: number) {
   return `${count} free listen${count === 1 ? '' : 's'}`;
+}
+
+function getRoundMistakeCount(round: Round) {
+  return round.guessMistakeCount ?? round.guessEvents.reduce(
+    (maxMistakeCount, event) => Math.max(maxMistakeCount, event.mistakeCount),
+    0,
+  );
+}
+
+function formatMistakeCount(count: number) {
+  return `${count} mistake${count === 1 ? '' : 's'}`;
 }
 
 interface Point {
@@ -792,7 +804,6 @@ export function PlayRoundPanel({
     setIsGuessReplayComplete(
       !round ||
         round.status !== 'complete' ||
-        round.senderId !== currentUserId ||
         hasCompletedGuessPlayback(currentUserId, round.id),
     );
     setError(null);
@@ -943,6 +954,7 @@ export function PlayRoundPanel({
     () => {
       const cells = guessEntries.reduce<GuessCellMap>((nextCells, entry) => {
         nextCells[entry.phraseIndex] = {
+          animationKey: entry.animationKey,
           correct: entry.correct,
           shake: entry.shake,
           value: entry.value,
@@ -953,6 +965,7 @@ export function PlayRoundPanel({
 
       if (guessFeedback) {
         cells[guessFeedback.phraseIndex] = {
+          animationKey: guessFeedback.animationKey,
           correct: guessFeedback.correct,
           shake: guessFeedback.shake,
           value: guessFeedback.value,
@@ -972,8 +985,8 @@ export function PlayRoundPanel({
       ? composeGuessTextFromEvents(round.correctPhrase, guessEvents)
       : composeGuessTextFromEntries(round.correctPhrase, guessEntries)
     : '';
-  const shouldPlaySenderGuessReplay = Boolean(
-    round && round.status === 'complete' && !isRecipient && !isGuessReplayComplete,
+  const shouldPlayGuessReplay = Boolean(
+    round && round.status === 'complete' && !isGuessReplayComplete,
   );
   const isGuessInputDisabled = Boolean(
     !round ||
@@ -1013,7 +1026,7 @@ export function PlayRoundPanel({
       round,
     ],
   );
-  const isRewardBusy = isAnimatingReward || isClaimingReward || shouldPlaySenderGuessReplay;
+  const isRewardBusy = isAnimatingReward || isClaimingReward || shouldPlayGuessReplay;
   const hasPendingReward = Boolean(roundReward && !roundReward.claimed);
   const shouldShowRewardSequence = hasPendingReward && (isAnimatingReward || isAwaitingRewardContinue);
   const rewardCampaignEntry = useMemo(() => {
@@ -1262,7 +1275,7 @@ export function PlayRoundPanel({
   }, [isRecipient, round?.id, round?.status, setCoinBalance]);
 
   useEffect(() => {
-    if (recipientStage !== 'guess' || isGuessLocked || isGuessAnimating || isSubmittingGuess) {
+    if (recipientStage !== 'guess' || isGuessLocked || isSubmittingGuess) {
       return;
     }
 
@@ -1276,7 +1289,7 @@ export function PlayRoundPanel({
       window.cancelAnimationFrame(frame);
       window.clearTimeout(timeout);
     };
-  }, [isGuessAnimating, isGuessLocked, isSubmittingGuess, recipientStage, round?.id]);
+  }, [isGuessLocked, isSubmittingGuess, recipientStage, round?.id]);
 
   useEffect(() => {
     if (
@@ -1285,7 +1298,7 @@ export function PlayRoundPanel({
       !currentUserId ||
       isLoadingCoins ||
       !isRewardStepOpen ||
-      shouldPlaySenderGuessReplay
+      shouldPlayGuessReplay
     ) {
       if (round?.status === 'complete') {
         logRewardDebug('Skipped reward load before fetch.', {
@@ -1423,7 +1436,7 @@ export function PlayRoundPanel({
     round?.id,
     round?.status,
     setCoinPreview,
-    shouldPlaySenderGuessReplay,
+    shouldPlayGuessReplay,
     updateRewardPreview,
   ]);
 
@@ -1493,11 +1506,10 @@ export function PlayRoundPanel({
       currentRound.status === 'complete' ||
       !isRecipient ||
       isGuessLocked ||
-      isGuessAnimating ||
       isSubmittingGuess ||
       isGuessComplete ||
       isGuessFailed ||
-      isGuessSpacer(rawCharacter)
+      !isGuessTargetCharacter(rawCharacter)
     ) {
       return;
     }
@@ -1514,6 +1526,7 @@ export function PlayRoundPanel({
     const correct = isGuessCharacterCorrect(value, expected);
     const nextMistakeCount = guessMistakeCount + (correct ? 0 : 1);
     const now = typeof performance === 'undefined' ? Date.now() : performance.now();
+    const animationKey = guessEvents.length + 1;
 
     if (guessStartedAtRef.current === null) {
       guessStartedAtRef.current = now;
@@ -1523,6 +1536,7 @@ export function PlayRoundPanel({
       phraseIndex: targetIndex,
       value,
       correct,
+      animationKey,
       shake: !correct,
     };
     const nextEvent: RoundGuessEvent = {
@@ -1547,6 +1561,10 @@ export function PlayRoundPanel({
     setIsGuessAnimating(true);
     setGuessEvents(nextEvents);
     setGuessMistakeCount(nextMistakeCount);
+    if (correct) {
+      setGuessEntries(nextEntries);
+      setIsGuessLocked(didCompleteGuess);
+    }
 
     if (didFailGuess) {
       setIsGuessLocked(true);
@@ -1563,11 +1581,6 @@ export function PlayRoundPanel({
     }
 
     guessFeedbackTimerRef.current = setTimeout(() => {
-      if (correct) {
-        setGuessEntries(nextEntries);
-        setIsGuessLocked(didCompleteGuess);
-      }
-
       setGuessFeedback(null);
       setIsGuessAnimating(false);
     }, correct ? 180 : 460);
@@ -1599,7 +1612,7 @@ export function PlayRoundPanel({
 
   const handleGuessInputChange = (event: ChangeEvent<HTMLInputElement>) => {
     const nextCharacter = Array.from(event.currentTarget.value).find(
-      (character) => !isGuessSpacer(character),
+      isGuessTargetCharacter,
     );
 
     event.currentTarget.value = '';
@@ -1788,11 +1801,13 @@ export function PlayRoundPanel({
   const rewardResultSummary =
     isRecipient && activeRound.status === 'complete' && scorePresentation ? (
       <div className="reward-reveal-details">
-        <p>
-          <strong>You guessed:</strong> {activeRound.guess || 'No guess submitted'}
+        <p className="reward-reveal-detail is-guess">
+          <span>Guess</span>
+          <strong>{activeRound.guess || 'No guess submitted'}</strong>
         </p>
-        <p>
-          <strong>{activeRound.senderUsername} said:</strong> {activeRound.correctPhrase}
+        <p className="reward-reveal-detail">
+          <span>Mistakes</span>
+          <strong>{formatMistakeCount(getRoundMistakeCount(activeRound))}</strong>
         </p>
       </div>
     ) : null;
@@ -1942,14 +1957,17 @@ export function PlayRoundPanel({
   );
 
   const rewardStatusCard =
-    activeRound.status === 'complete' && shouldPlaySenderGuessReplay ? (
-      <GuessReplayPanel
-        correctPhrase={activeRound.correctPhrase}
-        events={activeRound.guessEvents}
-        guess={activeRound.guess}
-        onComplete={handleGuessReplayComplete}
-        playbackKey={activeRound.id}
-      />
+    activeRound.status === 'complete' && shouldPlayGuessReplay ? (
+      <div className="reward-guess-replay-stage">
+        <p>Replaying the guess</p>
+        <GuessReplayPanel
+          correctPhrase={activeRound.correctPhrase}
+          events={activeRound.guessEvents}
+          guess={activeRound.guess}
+          onComplete={handleGuessReplayComplete}
+          playbackKey={activeRound.id}
+        />
+      </div>
     ) : activeRound.status === 'complete' && roundReward ? (
       <RoundRewardSequence
         baseCoins={rewardBaseCoinsRef.current}

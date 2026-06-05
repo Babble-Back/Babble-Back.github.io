@@ -1615,15 +1615,60 @@ p {
   padding: 4px 0 0;
 }
 
-.reward-reveal-details {
+.reward-guess-replay-stage {
   display: grid;
-  gap: 6px;
-  justify-items: center;
+  gap: 10px;
   text-align: center;
 }
 
-.reward-reveal-details p {
+.reward-guess-replay-stage > p {
   margin: 0;
+  color: #6f7480;
+  font-size: 0.86rem;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.reward-reveal-details {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+
+.reward-reveal-detail {
+  max-width: 100%;
+  min-height: 32px;
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.11);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(246, 251, 255, 0.88);
+  font-size: 0.88rem;
+}
+
+.reward-reveal-detail span {
+  color: rgba(255, 240, 184, 0.72);
+  font-size: 0.68rem;
+  font-weight: 900;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.reward-reveal-detail strong {
+  min-width: 0;
+  color: #f6fbff;
+  font-weight: 900;
+}
+
+.reward-reveal-detail.is-guess strong {
+  max-width: min(44ch, 62vw);
+  overflow-wrap: anywhere;
 }
 
 .reward-review-stack {
@@ -2652,6 +2697,17 @@ p {
   animation: guess-cell-shake 360ms ease;
 }
 
+.guess-phrase-fixed-char {
+  display: inline-grid;
+  place-items: center;
+  min-width: 14px;
+  height: 42px;
+  color: rgba(83, 92, 116, 0.78);
+  font-size: 1.28rem;
+  font-weight: 900;
+  line-height: 1;
+}
+
 .guess-phrase-space {
   flex: 0 0 10px;
   height: 42px;
@@ -2695,6 +2751,10 @@ p {
   border-color: rgba(255, 122, 138, 0.48);
   background: rgba(255, 91, 111, 0.22);
   color: #ffc0c7;
+}
+
+.guess-replay-card .guess-phrase-fixed-char {
+  color: rgba(246, 251, 255, 0.78);
 }
 
 .round-guess-step {
@@ -3208,6 +3268,12 @@ p {
   font-size: 0.54rem;
 }
 
+.chat-bubble .chat-guess-playback-combo .guess-phrase-fixed-char {
+  min-width: 6px;
+  height: 19px;
+  font-size: 0.66rem;
+}
+
 .chat-bubble-stack {
   display: grid;
   gap: 10px;
@@ -3350,6 +3416,12 @@ p {
   width: 30px;
   height: 38px;
   font-size: 0.98rem;
+}
+
+.chat-bubble .guess-phrase-fixed-char {
+  height: 38px;
+  color: rgba(83, 92, 116, 0.82);
+  font-size: 1rem;
 }
 
 .chat-bubble .guess-replay-card .guess-phrase-cell {
@@ -3728,6 +3800,13 @@ p {
   color: var(--ink);
   font-size: clamp(0.88rem, 2.4vw, 1.08rem);
   box-shadow: 0 6px 12px rgba(16, 30, 45, 0.1);
+}
+
+.chat-guess-tray .guess-phrase-fixed-char {
+  min-width: 8px;
+  height: clamp(34px, 8vw, 44px);
+  color: rgba(26, 33, 46, 0.76);
+  font-size: clamp(0.96rem, 2.8vw, 1.18rem);
 }
 
 .chat-guess-tray .guess-phrase-cell.is-active {

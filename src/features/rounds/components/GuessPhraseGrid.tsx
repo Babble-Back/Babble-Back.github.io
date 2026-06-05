@@ -5,11 +5,13 @@ import {
   getGuessTargetIndexes,
   isGuessCharacterCorrect,
   isGuessSpacer,
+  isGuessTargetCharacter,
 } from '../utils';
 
 export interface GuessCellState {
   value: string;
   correct: boolean;
+  animationKey?: number;
   shake?: boolean;
 }
 
@@ -39,7 +41,17 @@ interface GuessResultGridProps {
 
 type GuessPhrasePart =
   | {
-      characters: Array<{ character: string; index: number }>;
+      characters: Array<
+        | {
+            index: number;
+            type: 'cell';
+          }
+        | {
+            character: string;
+            index: number;
+            type: 'fixed';
+          }
+      >;
       type: 'word';
     }
   | {
@@ -108,8 +120,9 @@ function getPlaybackEvents(
 }
 
 function buildFinalGuessCells(events: RoundGuessEvent[]) {
-  return events.reduce<GuessCellMap>((cells, event) => {
+  return events.reduce<GuessCellMap>((cells, event, eventIndex) => {
     cells[event.index] = {
+      animationKey: eventIndex + 1,
       correct: event.correct,
       value: event.value,
     };
@@ -120,7 +133,7 @@ function buildFinalGuessCells(events: RoundGuessEvent[]) {
 
 function buildGuessPhraseParts(correctPhrase: string) {
   const parts: GuessPhrasePart[] = [];
-  let currentWord: Array<{ character: string; index: number }> = [];
+  let currentWord: Extract<GuessPhrasePart, { type: 'word' }>['characters'] = [];
 
   Array.from(correctPhrase).forEach((character, index) => {
     if (isGuessSpacer(character)) {
@@ -140,8 +153,15 @@ function buildGuessPhraseParts(correctPhrase: string) {
     }
 
     currentWord.push({
-      character,
       index,
+      ...(isGuessTargetCharacter(character)
+        ? {
+            type: 'cell' as const,
+          }
+        : {
+            character,
+            type: 'fixed' as const,
+          }),
     });
   });
 
@@ -183,7 +203,20 @@ export function GuessPhraseGrid({
 
         return (
           <span aria-hidden="true" className="guess-phrase-word" key={`word-${partIndex}`}>
-            {part.characters.map(({ index }) => {
+            {part.characters.map((phraseCharacter) => {
+              if (phraseCharacter.type === 'fixed') {
+                return (
+                  <span
+                    aria-hidden="true"
+                    className="guess-phrase-fixed-char"
+                    key={`fixed-${phraseCharacter.index}`}
+                  >
+                    {phraseCharacter.character}
+                  </span>
+                );
+              }
+
+              const { index } = phraseCharacter;
               const cell = cells[index];
               const isFilled = Boolean(cell?.value);
               const toneClass = isFilled
@@ -198,7 +231,7 @@ export function GuessPhraseGrid({
                 <span
                   aria-hidden="true"
                   className={`guess-phrase-cell ${toneClass} ${activeClass} ${shakeClass}`.trim()}
-                  key={`cell-${index}`}
+                  key={`cell-${index}-${cell?.animationKey ?? 'empty'}`}
                 >
                   {cell?.value ?? '_'}
                 </span>
@@ -238,12 +271,13 @@ export function GuessReplayPanel({
     }
 
     const schedule = getReplaySchedule(playbackEvents);
-    const timers = schedule.map(({ delayMs, event }) =>
+    const timers = schedule.map(({ delayMs, event }, eventIndex) =>
       window.setTimeout(() => {
         setActiveIndex(event.index);
         setCells((currentCells) => ({
           ...currentCells,
           [event.index]: {
+            animationKey: eventIndex + 1,
             correct: event.correct,
             shake: !event.correct,
             value: event.value,
