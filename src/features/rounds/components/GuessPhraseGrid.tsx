@@ -23,6 +23,7 @@ interface GuessPhraseGridProps {
   cells: GuessCellMap;
   className?: string;
   correctPhrase: string;
+  onSelectIndex?: (index: number) => void;
 }
 
 interface GuessReplayPanelProps {
@@ -181,6 +182,7 @@ export function GuessPhraseGrid({
   cells,
   className = '',
   correctPhrase,
+  onSelectIndex,
 }: GuessPhraseGridProps) {
   const phraseParts = useMemo(() => buildGuessPhraseParts(correctPhrase), [correctPhrase]);
 
@@ -226,12 +228,15 @@ export function GuessPhraseGrid({
                 : 'is-empty';
               const activeClass = activeIndex === index ? 'is-active' : '';
               const shakeClass = cell?.shake ? 'is-shaking' : '';
+              const selectableClass = onSelectIndex ? 'is-selectable' : '';
 
               return (
                 <span
                   aria-hidden="true"
-                  className={`guess-phrase-cell ${toneClass} ${activeClass} ${shakeClass}`.trim()}
+                  className={`guess-phrase-cell ${toneClass} ${activeClass} ${shakeClass} ${selectableClass}`.trim()}
+                  data-guess-index={index}
                   key={`cell-${index}-${cell?.animationKey ?? 'empty'}`}
+                  onClick={onSelectIndex ? () => onSelectIndex(index) : undefined}
                 >
                   {cell?.value ?? '_'}
                 </span>

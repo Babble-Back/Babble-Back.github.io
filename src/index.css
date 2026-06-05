@@ -2622,7 +2622,7 @@ p {
   font-size: 16px;
   opacity: 0.01;
   outline: none;
-  pointer-events: auto;
+  pointer-events: none;
   -webkit-text-fill-color: transparent;
   touch-action: manipulation;
 }
@@ -2676,6 +2676,10 @@ p {
 .guess-phrase-cell.is-active {
   border-color: rgba(77, 121, 255, 0.72);
   box-shadow: 0 0 0 4px rgba(77, 121, 255, 0.12);
+}
+
+.guess-phrase-cell.is-selectable {
+  cursor: text;
 }
 
 .guess-phrase-cell.is-correct {
@@ -3139,7 +3143,7 @@ p {
 }
 
 .chat-bubble.is-prompt-with-text .chat-bubble-stack {
-  width: max-content;
+  width: fit-content;
   max-width: 100%;
   grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
@@ -3277,6 +3281,8 @@ p {
 .chat-bubble-stack {
   display: grid;
   gap: 10px;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .chat-bubble .audio-card {
@@ -3378,7 +3384,9 @@ p {
 .chat-reveal-line,
 .chat-transcript {
   margin: 0;
-  overflow-wrap: break-word;
+  max-width: min(100%, 34ch);
+  overflow-wrap: anywhere;
+  white-space: normal;
   word-break: normal;
 }
 

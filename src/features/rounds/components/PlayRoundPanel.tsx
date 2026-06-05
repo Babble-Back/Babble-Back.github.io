@@ -38,12 +38,16 @@ import {
 import { getRoundSummary, getScorePresentation } from '../scorePresentation';
 import type { Round, RoundGuessEvent, RoundListenState, RoundReward } from '../types';
 import {
+  getAdjacentGuessTargetIndex,
   composeGuessTextFromEvents,
   composeGuessTextFromEntries,
   failedGuessMistakeCount,
   getGuessTargetIndexes,
+  getNextOpenGuessTargetIndex,
   isGuessCharacterCorrect,
+  isGuessCompleteFromEntries,
   isGuessTargetCharacter,
+  upsertGuessEntryByPhraseIndex,
 } from '../utils';
 import {
   GuessPhraseGrid,
@@ -757,6 +761,7 @@ export function PlayRoundPanel({
   const [guessEvents, setGuessEvents] = useState<RoundGuessEvent[]>([]);
   const [guessMistakeCount, setGuessMistakeCount] = useState(0);
   const [guessFeedback, setGuessFeedback] = useState<GuessEntry | null>(null);
+  const [activeGuessCursorIndex, setActiveGuessCursorIndex] = useState<number | null>(null);
   const [isGuessAnimating, setIsGuessAnimating] = useState(false);
   const [isGuessLocked, setIsGuessLocked] = useState(false);
   const [isGuessReplayComplete, setIsGuessReplayComplete] = useState(true);
@@ -799,6 +804,7 @@ export function PlayRoundPanel({
     setGuessEvents([]);
     setGuessMistakeCount(0);
     setGuessFeedback(null);
+    setActiveGuessCursorIndex(null);
     setIsGuessAnimating(false);
     setIsGuessLocked(round?.status === 'complete');
     setIsGuessReplayComplete(
@@ -976,9 +982,13 @@ export function PlayRoundPanel({
     },
     [guessEntries, guessFeedback],
   );
-  const activeGuessIndex = guessTargetIndexes[guessEntries.length] ?? null;
-  const isGuessComplete =
-    guessTargetIndexes.length > 0 && guessEntries.length >= guessTargetIndexes.length;
+  const fallbackActiveGuessIndex =
+    getNextOpenGuessTargetIndex(guessTargetIndexes, guessEntries) ?? guessTargetIndexes[0] ?? null;
+  const activeGuessIndex =
+    activeGuessCursorIndex !== null && guessTargetIndexes.includes(activeGuessCursorIndex)
+      ? activeGuessCursorIndex
+      : fallbackActiveGuessIndex;
+  const isGuessComplete = isGuessCompleteFromEntries(guessTargetIndexes, guessEntries);
   const isGuessFailed = guessMistakeCount >= failedGuessMistakeCount;
   const currentGuessText = round
     ? isGuessFailed
@@ -1514,7 +1524,7 @@ export function PlayRoundPanel({
       return;
     }
 
-    const targetIndex = guessTargetIndexes[guessEntries.length];
+    const targetIndex = activeGuessIndex;
 
     if (typeof targetIndex !== 'number') {
       return;
@@ -1547,10 +1557,12 @@ export function PlayRoundPanel({
       mistakeCount: nextMistakeCount,
       elapsedMs: Math.max(0, Math.round(now - guessStartedAtRef.current)),
     };
-    const nextEntries = correct ? [...guessEntries, nextEntry] : guessEntries;
+    const nextEntries = correct
+      ? upsertGuessEntryByPhraseIndex(guessEntries, nextEntry, guessTargetIndexes)
+      : guessEntries;
     const nextEvents = [...guessEvents, nextEvent];
     const didFailGuess = nextMistakeCount >= failedGuessMistakeCount;
-    const didCompleteGuess = correct && nextEntries.length >= guessTargetIndexes.length;
+    const didCompleteGuess = correct && isGuessCompleteFromEntries(guessTargetIndexes, nextEntries);
 
     if (guessFeedbackTimerRef.current) {
       clearTimeout(guessFeedbackTimerRef.current);
@@ -1563,7 +1575,12 @@ export function PlayRoundPanel({
     setGuessMistakeCount(nextMistakeCount);
     if (correct) {
       setGuessEntries(nextEntries);
+      setActiveGuessCursorIndex(
+        getNextOpenGuessTargetIndex(guessTargetIndexes, nextEntries, targetIndex) ?? targetIndex,
+      );
       setIsGuessLocked(didCompleteGuess);
+    } else {
+      setActiveGuessCursorIndex(targetIndex);
     }
 
     if (didFailGuess) {
@@ -1586,6 +1603,18 @@ export function PlayRoundPanel({
     }, correct ? 180 : 460);
   };
 
+  const moveGuessCursor = (direction: -1 | 1) => {
+    if (isGuessInputDisabled || guessTargetIndexes.length === 0) {
+      return;
+    }
+
+    const nextIndex = getAdjacentGuessTargetIndex(guessTargetIndexes, activeGuessIndex, direction);
+
+    if (typeof nextIndex === 'number') {
+      setActiveGuessCursorIndex(nextIndex);
+    }
+  };
+
   const handleGuessKeyDown = (event: KeyboardEvent<HTMLInputElement | HTMLDivElement>) => {
     if (event.key === 'Enter') {
       event.preventDefault();
@@ -1597,8 +1626,27 @@ export function PlayRoundPanel({
       return;
     }
 
-    if (event.key === 'Backspace' || event.key === 'Delete') {
+    if (event.key === 'ArrowLeft' || event.key === 'ArrowUp' || event.key === 'Backspace') {
       event.preventDefault();
+      moveGuessCursor(-1);
+      return;
+    }
+
+    if (event.key === 'ArrowRight' || event.key === 'ArrowDown' || event.key === 'Delete') {
+      event.preventDefault();
+      moveGuessCursor(1);
+      return;
+    }
+
+    if (event.key === 'Home') {
+      event.preventDefault();
+      setActiveGuessCursorIndex(guessTargetIndexes[0] ?? null);
+      return;
+    }
+
+    if (event.key === 'End') {
+      event.preventDefault();
+      setActiveGuessCursorIndex(guessTargetIndexes[guessTargetIndexes.length - 1] ?? null);
       return;
     }
 
@@ -2152,6 +2200,7 @@ export function PlayRoundPanel({
                   ariaLabel="Type the phrase"
                   cells={guessCells}
                   correctPhrase={activeRound.correctPhrase}
+                  onSelectIndex={isGuessInputDisabled ? undefined : setActiveGuessCursorIndex}
                 />
                 <input
                   aria-label="Type the phrase"

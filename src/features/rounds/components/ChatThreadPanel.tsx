@@ -29,9 +29,13 @@ import {
   composeGuessTextFromEntries,
   composeGuessTextFromEvents,
   failedGuessMistakeCount,
+  getAdjacentGuessTargetIndex,
   getGuessTargetIndexes,
+  getNextOpenGuessTargetIndex,
   isGuessCharacterCorrect,
+  isGuessCompleteFromEntries,
   isGuessTargetCharacter,
+  upsertGuessEntryByPhraseIndex,
 } from '../utils';
 import {
   GuessPhraseGrid,
@@ -567,6 +571,7 @@ function ChatGuessTray({
   const [guessEvents, setGuessEvents] = useState<RoundGuessEvent[]>(round.guessEvents);
   const [guessMistakeCount, setGuessMistakeCount] = useState(round.guessMistakeCount ?? 0);
   const [guessFeedback, setGuessFeedback] = useState<GuessEntry | null>(null);
+  const [activeGuessCursorIndex, setActiveGuessCursorIndex] = useState<number | null>(null);
   const [isGuessAnimating, setIsGuessAnimating] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -597,9 +602,13 @@ function ChatGuessTray({
 
     return cells;
   }, [guessEntries, guessFeedback]);
-  const activeGuessIndex = guessTargetIndexes[guessEntries.length] ?? null;
-  const isGuessComplete =
-    guessTargetIndexes.length > 0 && guessEntries.length >= guessTargetIndexes.length;
+  const fallbackActiveGuessIndex =
+    getNextOpenGuessTargetIndex(guessTargetIndexes, guessEntries) ?? guessTargetIndexes[0] ?? null;
+  const activeGuessIndex =
+    activeGuessCursorIndex !== null && guessTargetIndexes.includes(activeGuessCursorIndex)
+      ? activeGuessCursorIndex
+      : fallbackActiveGuessIndex;
+  const isGuessComplete = isGuessCompleteFromEntries(guessTargetIndexes, guessEntries);
   const isGuessFailed = guessMistakeCount >= failedGuessMistakeCount;
   const isGuessInputDisabled =
     isSubmitting || isGuessFailed || !reversedAttemptBlob;
@@ -609,6 +618,7 @@ function ChatGuessTray({
     setGuessEvents(round.guessEvents);
     setGuessMistakeCount(round.guessMistakeCount ?? 0);
     setGuessFeedback(null);
+    setActiveGuessCursorIndex(null);
     setIsGuessAnimating(false);
     guessStartedAtRef.current = null;
 
@@ -635,7 +645,7 @@ function ChatGuessTray({
       window.cancelAnimationFrame(frame);
       window.clearTimeout(timeout);
     };
-  }, [currentUserId, guessEntries.length, isGuessInputDisabled, round.id, round.recipientId]);
+  }, [currentUserId, isGuessInputDisabled, round.id, round.recipientId]);
 
   const finishRound = async (options: {
     entries: GuessEntry[];
@@ -682,7 +692,7 @@ function ChatGuessTray({
       return;
     }
 
-    const targetIndex = guessTargetIndexes[guessEntries.length];
+    const targetIndex = activeGuessIndex;
 
     if (typeof targetIndex !== 'number') {
       return;
@@ -716,10 +726,12 @@ function ChatGuessTray({
       mistakeCount: nextMistakeCount,
       value,
     };
-    const nextEntries = correct ? [...guessEntries, nextEntry] : guessEntries;
+    const nextEntries = correct
+      ? upsertGuessEntryByPhraseIndex(guessEntries, nextEntry, guessTargetIndexes)
+      : guessEntries;
     const nextEvents = [...guessEvents, nextEvent];
     const didFailGuess = nextMistakeCount >= failedGuessMistakeCount;
-    const didCompleteGuess = correct && nextEntries.length >= guessTargetIndexes.length;
+    const didCompleteGuess = correct && isGuessCompleteFromEntries(guessTargetIndexes, nextEntries);
 
     if (feedbackTimerRef.current) {
       window.clearTimeout(feedbackTimerRef.current);
@@ -732,6 +744,11 @@ function ChatGuessTray({
     setIsGuessAnimating(true);
     if (correct) {
       setGuessEntries(nextEntries);
+      setActiveGuessCursorIndex(
+        getNextOpenGuessTargetIndex(guessTargetIndexes, nextEntries, targetIndex) ?? targetIndex,
+      );
+    } else {
+      setActiveGuessCursorIndex(targetIndex);
     }
 
     feedbackTimerRef.current = window.setTimeout(() => {
@@ -749,13 +766,49 @@ function ChatGuessTray({
     }, correct ? 180 : 460);
   };
 
+  const moveGuessCursor = (direction: -1 | 1) => {
+    if (isGuessInputDisabled || guessTargetIndexes.length === 0) {
+      return;
+    }
+
+    const nextIndex = getAdjacentGuessTargetIndex(guessTargetIndexes, activeGuessIndex, direction);
+
+    if (typeof nextIndex === 'number') {
+      setActiveGuessCursorIndex(nextIndex);
+    }
+  };
+
   const handleGuessKeyDown = (event: KeyboardEvent<HTMLInputElement | HTMLDivElement>) => {
-    if (event.key === 'Backspace' || event.key === 'Delete' || event.key === 'Enter') {
+    if (event.key === 'ArrowLeft' || event.key === 'ArrowUp' || event.key === 'Backspace') {
+      event.preventDefault();
+      moveGuessCursor(-1);
+      return;
+    }
+
+    if (event.key === 'ArrowRight' || event.key === 'ArrowDown' || event.key === 'Delete') {
+      event.preventDefault();
+      moveGuessCursor(1);
+      return;
+    }
+
+    if (event.key === 'Home') {
+      event.preventDefault();
+      setActiveGuessCursorIndex(guessTargetIndexes[0] ?? null);
+      return;
+    }
+
+    if (event.key === 'End') {
+      event.preventDefault();
+      setActiveGuessCursorIndex(guessTargetIndexes[guessTargetIndexes.length - 1] ?? null);
+      return;
+    }
+
+    if (event.key === 'Enter') {
       event.preventDefault();
       return;
     }
 
-    if (event.key.length !== 1) {
+    if (event.ctrlKey || event.metaKey || event.altKey || event.key.length !== 1) {
       return;
     }
 
@@ -823,6 +876,7 @@ function ChatGuessTray({
             ariaLabel="Guess what your friend said"
             cells={guessCells}
             correctPhrase={round.correctPhrase}
+            onSelectIndex={isGuessInputDisabled ? undefined : setActiveGuessCursorIndex}
           />
           <input
             aria-label="Guess what your friend said"

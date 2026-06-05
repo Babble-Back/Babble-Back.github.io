@@ -51,24 +51,108 @@ export function extractGuessCharacters(value: string) {
 
 export function composeGuessTextFromEntries(
   correctPhrase: string,
-  entries: readonly { value: string }[],
+  entries: readonly { phraseIndex?: number; value: string }[],
 ) {
-  let entryIndex = 0;
+  const targetIndexes = getGuessTargetIndexes(correctPhrase);
+  const latestValuesByIndex = new Map<number, string>();
+
+  entries.forEach((entry, entryIndex) => {
+    const phraseIndex =
+      typeof entry.phraseIndex === 'number' ? entry.phraseIndex : targetIndexes[entryIndex];
+
+    if (typeof phraseIndex === 'number') {
+      latestValuesByIndex.set(phraseIndex, entry.value);
+    }
+  });
 
   return Array.from(correctPhrase)
-    .map((character) => {
+    .map((character, index) => {
       if (!isGuessTargetCharacter(character)) {
         return character;
       }
 
-      const entry = entries[entryIndex];
-      entryIndex += 1;
-
-      return entry?.value ?? '';
+      return latestValuesByIndex.get(index) ?? '';
     })
     .join('')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+export function isGuessCompleteFromEntries(
+  targetIndexes: readonly number[],
+  entries: readonly { phraseIndex: number }[],
+) {
+  const filledIndexes = new Set(entries.map((entry) => entry.phraseIndex));
+
+  return targetIndexes.length > 0 && targetIndexes.every((index) => filledIndexes.has(index));
+}
+
+export function getNextOpenGuessTargetIndex(
+  targetIndexes: readonly number[],
+  entries: readonly { phraseIndex: number }[],
+  fromIndex: number | null = null,
+) {
+  if (targetIndexes.length === 0) {
+    return null;
+  }
+
+  const filledIndexes = new Set(entries.map((entry) => entry.phraseIndex));
+
+  if (filledIndexes.size >= targetIndexes.length) {
+    return null;
+  }
+
+  const fromPosition = typeof fromIndex === 'number' ? targetIndexes.indexOf(fromIndex) : -1;
+  const startPosition = fromPosition >= 0 ? fromPosition + 1 : 0;
+
+  for (let offset = 0; offset < targetIndexes.length; offset += 1) {
+    const targetIndex = targetIndexes[(startPosition + offset) % targetIndexes.length];
+
+    if (!filledIndexes.has(targetIndex)) {
+      return targetIndex;
+    }
+  }
+
+  return null;
+}
+
+export function getAdjacentGuessTargetIndex(
+  targetIndexes: readonly number[],
+  activeIndex: number | null,
+  direction: -1 | 1,
+) {
+  if (targetIndexes.length === 0) {
+    return null;
+  }
+
+  const activePosition =
+    typeof activeIndex === 'number' ? targetIndexes.indexOf(activeIndex) : -1;
+
+  if (activePosition < 0) {
+    return direction > 0 ? targetIndexes[0] : targetIndexes[targetIndexes.length - 1];
+  }
+
+  const nextPosition = Math.max(
+    0,
+    Math.min(targetIndexes.length - 1, activePosition + direction),
+  );
+
+  return targetIndexes[nextPosition] ?? null;
+}
+
+export function upsertGuessEntryByPhraseIndex<T extends { phraseIndex: number }>(
+  entries: readonly T[],
+  entry: T,
+  targetIndexes: readonly number[],
+) {
+  const targetOrder = new Map(targetIndexes.map((targetIndex, order) => [targetIndex, order]));
+
+  return [...entries.filter((currentEntry) => currentEntry.phraseIndex !== entry.phraseIndex), entry]
+    .sort(
+      (leftEntry, rightEntry) =>
+        (targetOrder.get(leftEntry.phraseIndex) ?? Number.MAX_SAFE_INTEGER) -
+        (targetOrder.get(rightEntry.phraseIndex) ?? Number.MAX_SAFE_INTEGER),
+    );
 }
 
 export function composeGuessTextFromEvents(
