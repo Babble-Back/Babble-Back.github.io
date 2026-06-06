@@ -1230,7 +1230,8 @@ export function ChatThreadPanel({
       );
     });
   }, [audioPreparationError, currentUserId, isLoading, preparedAudioByRoundId, rounds]);
-  const isChatPreparing = isLoading || isPreparingChatAudio || hasUnpreparedChatAudio;
+  const isChatPreparing =
+    isLoading || (rounds.length === 0 && (isPreparingChatAudio || hasUnpreparedChatAudio));
   const canRenderChat = !isChatPreparing && !audioPreparationError;
 
   const loadRounds = useCallback(
