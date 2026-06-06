@@ -32,7 +32,7 @@ import {
 } from './lib/push';
 import { getActiveCampaignHome } from './lib/campaigns';
 import { archiveCompletedRound, getRoundDetails, listHomeThreads } from './lib/rounds';
-import { hasInitialPasswordRecoveryLink, supabaseConfigError } from './lib/supabase';
+import { hasInitialPasswordRecoveryLink, supabase, supabaseConfigError } from './lib/supabase';
 import { InstallAppPrompt } from './pwa/InstallAppPrompt';
 import { CoinDisplay, ResourceProvider } from './features/resources/ResourceProvider';
 
@@ -45,6 +45,7 @@ interface AppRoute {
 }
 
 const DEFAULT_SIGNED_IN_VIEW: View = 'home';
+const appLiveRefreshDebounceMs = 250;
 
 function createHomeRoute(): AppRoute {
   return {
@@ -92,6 +93,23 @@ function createInventoryRoute(): AppRoute {
     view: DEFAULT_SIGNED_IN_VIEW,
     friendId: null,
   };
+}
+
+function isCurrentDocumentHidden() {
+  return typeof document !== 'undefined' && document.hidden;
+}
+
+function isRealtimeRoundForCurrentUser(value: unknown, currentUserId: string) {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+
+  const row = value as {
+    recipient_id?: unknown;
+    sender_id?: unknown;
+  };
+
+  return row.sender_id === currentUserId || row.recipient_id === currentUserId;
 }
 
 function getNormalizedBasePath() {
@@ -676,6 +694,90 @@ function App() {
     },
     [currentUserId],
   );
+
+  useEffect(() => {
+    const client = supabase;
+
+    if (!currentUserId || !client) {
+      return;
+    }
+
+    let refreshTimer: number | null = null;
+    const scheduleRefresh = (payload: { new?: unknown; old?: unknown }) => {
+      const isRelevantRound =
+        isRealtimeRoundForCurrentUser(payload.new, currentUserId) ||
+        isRealtimeRoundForCurrentUser(payload.old, currentUserId);
+
+      if (!isRelevantRound) {
+        return;
+      }
+
+      if (refreshTimer !== null) {
+        window.clearTimeout(refreshTimer);
+      }
+
+      refreshTimer = window.setTimeout(() => {
+        refreshTimer = null;
+        void refreshAppData({ silent: true, skipIfInFlight: true });
+      }, appLiveRefreshDebounceMs);
+    };
+
+    const channel = client
+      .channel(`app-rounds:${currentUserId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          filter: `sender_id=eq.${currentUserId}`,
+          schema: 'public',
+          table: 'rounds',
+        },
+        scheduleRefresh,
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          filter: `recipient_id=eq.${currentUserId}`,
+          schema: 'public',
+          table: 'rounds',
+        },
+        scheduleRefresh,
+      )
+      .subscribe((status) => {
+        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          console.warn('Home live refresh subscription is not connected.', status);
+        }
+      });
+
+    return () => {
+      if (refreshTimer !== null) {
+        window.clearTimeout(refreshTimer);
+      }
+
+      void client.removeChannel(channel);
+    };
+  }, [currentUserId, refreshAppData]);
+
+  useEffect(() => {
+    if (!currentUserId || typeof window === 'undefined' || typeof document === 'undefined') {
+      return;
+    }
+
+    const refreshWhenVisible = () => {
+      if (!isCurrentDocumentHidden()) {
+        void refreshAppData({ silent: true, skipIfInFlight: true });
+      }
+    };
+
+    document.addEventListener('visibilitychange', refreshWhenVisible);
+    window.addEventListener('focus', refreshWhenVisible);
+
+    return () => {
+      document.removeEventListener('visibilitychange', refreshWhenVisible);
+      window.removeEventListener('focus', refreshWhenVisible);
+    };
+  }, [currentUserId, refreshAppData]);
 
   useEffect(() => {
     if (!currentUserId) {

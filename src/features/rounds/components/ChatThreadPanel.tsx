@@ -78,7 +78,6 @@ interface PendingChatAttempt {
 
 const chatAudioRetentionMs = 24 * 60 * 60 * 1000;
 const chatLiveRefreshDebounceMs = 250;
-const chatLiveRefreshFallbackMs = 30000;
 
 const EMPTY_PREPARED_CHAT_AUDIO: PreparedChatRoundAudio = {
   reversedAttemptBlob: null,
@@ -1383,18 +1382,6 @@ export function ChatThreadPanel({
     return () => {
       document.removeEventListener('visibilitychange', refreshWhenVisible);
       window.removeEventListener('focus', refreshWhenVisible);
-    };
-  }, [refreshLiveThread]);
-
-  useEffect(() => {
-    const refreshInterval = window.setInterval(() => {
-      if (!isCurrentDocumentHidden()) {
-        void refreshLiveThread();
-      }
-    }, chatLiveRefreshFallbackMs);
-
-    return () => {
-      window.clearInterval(refreshInterval);
     };
   }, [refreshLiveThread]);
 
