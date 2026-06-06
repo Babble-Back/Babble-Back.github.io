@@ -5,7 +5,7 @@ import type { RoundGuessEvent } from '../features/rounds/types';
 import type { RoundListenState } from '../features/rounds/types';
 import type { RoundSummary } from '../features/rounds/types';
 import type { RoundStarCount } from '../features/rounds/types';
-import { normalizeGuess, scoreGuessByTrace } from '../features/rounds/utils';
+import { scoreGuessByTrace } from '../features/rounds/utils';
 import { computeDifficulty, normalizePackText, type WordDifficulty } from '../utils/difficulty';
 import { sendAudioMessagePushNotification, sendClipSentPushNotification } from './push';
 import { formatSupabaseError, supabase, supabaseConfigError } from './supabase';
@@ -37,6 +37,7 @@ const ROUND_COLUMN_LIST = [
   'recipient_reaction_updated_at',
   'chat_gave_up',
   'chat_collapsed_at',
+  'chat_audio_expires_at',
   'sender_viewed_results_at',
   'recipient_viewed_results_at',
   'score',
@@ -47,6 +48,7 @@ const CHAT_METADATA_COLUMNS = new Set([
   'round_mode',
   'chat_gave_up',
   'chat_collapsed_at',
+  'chat_audio_expires_at',
   'sender_viewed_results_at',
   'recipient_viewed_results_at',
 ]);
@@ -115,6 +117,7 @@ interface RoundRow {
   recipient_reaction_updated_at: string | null;
   chat_gave_up?: boolean | null;
   chat_collapsed_at?: string | null;
+  chat_audio_expires_at?: string | null;
   sender_viewed_results_at?: string | null;
   recipient_viewed_results_at?: string | null;
   score: number | null;
@@ -146,6 +149,8 @@ interface SaveRoundAttemptInput {
 }
 
 interface CompleteChatRoundInput {
+  attemptAudioBlob?: Blob | null;
+  currentUserId?: string;
   roundId: string;
   guess: string;
   guessEvents: RoundGuessEvent[];
@@ -293,13 +298,16 @@ function isMissingRoundGuessTraceColumnError(message: string) {
 }
 
 function isMissingRoundChatMetadataColumnError(message: string) {
-  return /round_mode|chat_gave_up|chat_collapsed_at|sender_viewed_results_at|recipient_viewed_results_at|sender_chat_read_at|recipient_chat_read_at/i.test(
+  return /round_mode|chat_gave_up|chat_collapsed_at|chat_audio_expires_at|sender_viewed_results_at|recipient_viewed_results_at|sender_chat_read_at|recipient_chat_read_at/i.test(
     message,
   );
 }
 
 function normalizeChatPhrase(phrase: string) {
-  const normalizedPhrase = normalizeGuess(phrase);
+  const normalizedPhrase = phrase
+    .trim()
+    .normalize('NFKC')
+    .replace(/\s+/g, ' ');
 
   if (!normalizedPhrase) {
     throw new Error('Type what you are going to say before recording.');
@@ -310,6 +318,16 @@ function normalizeChatPhrase(phrase: string) {
   }
 
   return normalizedPhrase;
+}
+
+function isChatAudioExpired(row: RoundRow) {
+  if ((row.round_mode ?? 'reward') !== 'chat' || !row.chat_audio_expires_at) {
+    return false;
+  }
+
+  const expiresAt = new Date(row.chat_audio_expires_at).getTime();
+
+  return Number.isFinite(expiresAt) && expiresAt <= Date.now();
 }
 
 function normalizeRoundReactionMessage(message: string | null | undefined) {
@@ -438,7 +456,7 @@ async function mapRoundRow(
     includeAudioUrls?: boolean;
   },
 ): Promise<Round> {
-  const shouldIncludeAudioUrls = options?.includeAudioUrls ?? true;
+  const shouldIncludeAudioUrls = (options?.includeAudioUrls ?? true) && !isChatAudioExpired(row);
   const [originalAudioUrl, attemptAudioUrl] =
     shouldIncludeAudioUrls
       ? await Promise.all([
@@ -473,6 +491,7 @@ async function mapRoundRow(
     roundMode: row.round_mode ?? 'reward',
     chatGaveUp: Boolean(row.chat_gave_up),
     chatCollapsedAt: row.chat_collapsed_at ?? null,
+    chatAudioExpiresAt: row.chat_audio_expires_at ?? null,
     senderViewedResultsAt: row.sender_viewed_results_at ?? null,
     recipientViewedResultsAt: row.recipient_viewed_results_at ?? null,
     score: row.score,
@@ -1091,7 +1110,16 @@ export async function completeChatRound(input: CompleteChatRoundInput): Promise<
   const client = requireSupabase();
   const guessEvents = normalizeRoundGuessEvents(input.guessEvents);
   const guessMistakeCount = normalizeGuessMistakeCount(input.guessMistakeCount);
+  const attemptAudio =
+    input.attemptAudioBlob && input.currentUserId
+      ? await uploadAudio(input.attemptAudioBlob, {
+          ownerId: input.currentUserId,
+          roundId: input.roundId,
+          label: 'attempt',
+        })
+      : null;
   const { data, error } = await client.rpc('complete_chat_round', {
+    attempt_audio_path_input: attemptAudio?.path ?? null,
     chat_round_id: input.roundId,
     gave_up_input: input.gaveUp,
     guess_events_input: guessEvents,

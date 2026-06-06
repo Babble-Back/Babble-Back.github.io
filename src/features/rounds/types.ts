@@ -85,6 +85,7 @@ export interface Round {
   roundMode: RoundMode;
   chatGaveUp: boolean;
   chatCollapsedAt: string | null;
+  chatAudioExpiresAt: string | null;
   senderViewedResultsAt: string | null;
   recipientViewedResultsAt: string | null;
   score: number | null;

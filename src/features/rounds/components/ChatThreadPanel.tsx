@@ -21,7 +21,6 @@ import {
   markChatThreadRead,
   markRoundResultsViewed,
   maxChatPhraseLength,
-  saveChatRoundAttempt,
 } from '../../../lib/rounds';
 import type { Friend } from '../../social/types';
 import type { Round, RoundGuessEvent } from '../types';
@@ -69,6 +68,14 @@ interface PreparedChatRoundAudio {
   reversedAttemptBlob: Blob | null;
   reversedPromptBlob: Blob | null;
 }
+
+interface PendingChatAttempt {
+  attemptAudioBlob: Blob;
+  reversedAttemptBlob: Blob | null;
+  error: string | null;
+}
+
+const chatAudioRetentionMs = 24 * 60 * 60 * 1000;
 
 const EMPTY_PREPARED_CHAT_AUDIO: PreparedChatRoundAudio = {
   reversedAttemptBlob: null,
@@ -314,18 +321,43 @@ function hasCurrentUserViewedRound(round: Round, currentUserId: string) {
     : Boolean(round.recipientViewedResultsAt);
 }
 
+function getChatAudioExpiresAt(round: Round) {
+  if (round.chatAudioExpiresAt) {
+    return round.chatAudioExpiresAt;
+  }
+
+  if (!round.chatCollapsedAt) {
+    return null;
+  }
+
+  const collapsedAt = new Date(round.chatCollapsedAt).getTime();
+
+  if (!Number.isFinite(collapsedAt)) {
+    return null;
+  }
+
+  return new Date(collapsedAt + chatAudioRetentionMs).toISOString();
+}
+
 function isCollapsedTranscript(round: Round) {
+  const chatAudioExpiresAt = getChatAudioExpiresAt(round);
+
+  if (!chatAudioExpiresAt) {
+    return false;
+  }
+
+  const expiresAt = new Date(chatAudioExpiresAt).getTime();
+
   return Boolean(
     round.status === 'complete' &&
-      (round.chatCollapsedAt ||
-        (round.senderViewedResultsAt && round.recipientViewedResultsAt)),
+      Number.isFinite(expiresAt) &&
+      expiresAt <= Date.now(),
   );
 }
 
-function needsReversedPromptForChat(round: Round, currentUserId: string) {
+function needsReversedPromptForChat(round: Round) {
   return Boolean(
     !isCollapsedTranscript(round) &&
-      round.senderId !== currentUserId &&
       (round.originalAudioBlob || round.originalAudioUrl),
   );
 }
@@ -434,10 +466,10 @@ function ChatRoundBubble({
       children: (
         <div className="chat-bubble-stack">
           <AudioPlayerCard
-            title={isOutgoing ? 'Your prompt' : 'Reversed challenge'}
-            blob={isOutgoing ? round.originalAudioBlob : reversedPromptBlob}
+            title={isOutgoing ? 'Your message backwards' : 'Reversed challenge'}
+            blob={reversedPromptBlob}
             onPlayRequest={handleSelectOnPlay}
-            remoteUrl={isOutgoing ? round.originalAudioUrl : null}
+            playbackKind="babble"
           />
           {shouldShowPhrase ? (
             <p className="chat-transcript">
@@ -503,11 +535,22 @@ function ChatRoundBubble({
               rowIsOutgoing: recipientSideIsOutgoing,
               children: (
                 <div className="chat-guess-playback-combo">
-                  <AudioPlayerCard
-                    title="Reversed imitation"
-                    blob={reversedAttemptBlob}
-                    playbackKind="babble"
-                  />
+                  <div className="chat-attempt-playback-pair">
+                    <AudioPlayerCard
+                      title={recipientSideIsOutgoing ? 'Your imitation' : 'Their imitation'}
+                      blob={round.attemptAudioBlob}
+                      remoteUrl={round.attemptAudioUrl}
+                    />
+                    <AudioPlayerCard
+                      title={
+                        recipientSideIsOutgoing
+                          ? 'Your imitation backwards'
+                          : 'Their imitation backwards'
+                      }
+                      blob={reversedAttemptBlob}
+                      playbackKind="babble"
+                    />
+                  </div>
                   {guessPanel}
                 </div>
               ),
@@ -554,11 +597,13 @@ function ChatRoundBubble({
 }
 
 function ChatGuessTray({
+  attemptAudioBlob,
   currentUserId,
   onRoundUpdated,
   reversedAttemptBlob,
   round,
 }: {
+  attemptAudioBlob?: Blob | null;
   currentUserId: string;
   onRoundUpdated: (round: Round) => void;
   reversedAttemptBlob: Blob | null;
@@ -662,6 +707,8 @@ function ChatGuessTray({
 
     try {
       const updatedRound = await completeChatRound({
+        attemptAudioBlob,
+        currentUserId,
         gaveUp: options.gaveUp,
         guess,
         guessEvents: options.events,
@@ -671,7 +718,7 @@ function ChatGuessTray({
 
       onRoundUpdated({
         ...updatedRound,
-        attemptAudioBlob: round.attemptAudioBlob,
+        attemptAudioBlob: attemptAudioBlob ?? round.attemptAudioBlob,
         originalAudioBlob: round.originalAudioBlob,
       });
     } catch (caughtError) {
@@ -903,15 +950,11 @@ function ChatGuessTray({
 }
 
 function ChatRecorderTray({
-  currentUserId,
-  onRoundUpdated,
+  onAttemptReady,
   recorder,
-  round,
 }: {
-  currentUserId: string;
-  onRoundUpdated: (round: Round) => void;
+  onAttemptReady: (attemptAudioBlob: Blob) => Promise<void> | void;
   recorder: AudioRecorderControls;
-  round: Round;
 }) {
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -926,20 +969,10 @@ function ChatRecorderTray({
     setIsSaving(true);
 
     try {
-      const savedRound = await saveChatRoundAttempt({
-        attemptAudioBlob: recorder.audioBlob,
-        currentUserId,
-        roundId: round.id,
-      });
-
-      onRoundUpdated({
-        ...savedRound,
-        attemptAudioBlob: recorder.audioBlob,
-        originalAudioBlob: round.originalAudioBlob,
-      });
+      await onAttemptReady(recorder.audioBlob);
       recorder.clearRecording();
     } catch (caughtError) {
-      setError(caughtError instanceof Error ? caughtError.message : 'Unable to save your take.');
+      setError(caughtError instanceof Error ? caughtError.message : 'Unable to prepare your take.');
     } finally {
       setIsSaving(false);
     }
@@ -1124,6 +1157,9 @@ export function ChatThreadPanel({
   const [preparedAudioByRoundId, setPreparedAudioByRoundId] = useState<
     Record<string, PreparedChatRoundAudio>
   >({});
+  const [pendingAttemptsByRoundId, setPendingAttemptsByRoundId] = useState<
+    Record<string, PendingChatAttempt>
+  >({});
   const [isPreparingChatAudio, setIsPreparingChatAudio] = useState(false);
   const [audioPreparationError, setAudioPreparationError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -1157,7 +1193,7 @@ export function ChatThreadPanel({
 
     return rounds.some((round) => {
       const preparedAudio = preparedAudioByRoundId[round.id];
-      const needsPrompt = needsReversedPromptForChat(round, currentUserId);
+      const needsPrompt = needsReversedPromptForChat(round);
       const needsAttempt = needsReversedAttemptForChat(round, currentUserId);
 
       return Boolean(
@@ -1206,7 +1242,7 @@ export function ChatThreadPanel({
 
     const roundsNeedingPreparedAudio = rounds.filter(
       (round) =>
-        needsReversedPromptForChat(round, currentUserId) ||
+        needsReversedPromptForChat(round) ||
         needsReversedAttemptForChat(round, currentUserId),
     );
 
@@ -1230,7 +1266,7 @@ export function ChatThreadPanel({
               reversedPromptBlob: null,
             };
 
-            if (needsReversedPromptForChat(round, currentUserId)) {
+            if (needsReversedPromptForChat(round)) {
               preparedAudio.reversedPromptBlob = await getReversedAudioBlob({
                 blob: round.originalAudioBlob,
                 remoteUrl: round.originalAudioUrl,
@@ -1467,9 +1503,68 @@ export function ChatThreadPanel({
       setSelectedActionRoundId((currentRoundId) =>
         currentRoundId === round.id ? null : currentRoundId,
       );
+      setPendingAttemptsByRoundId((currentAttempts) => {
+        if (!currentAttempts[round.id]) {
+          return currentAttempts;
+        }
+
+        const remainingAttempts = { ...currentAttempts };
+        delete remainingAttempts[round.id];
+        return remainingAttempts;
+      });
     }
     void onThreadChanged?.();
   };
+
+  const handlePendingAttemptReady = useCallback(
+    async (roundId: string, attemptAudioBlob: Blob) => {
+      setPendingAttemptsByRoundId((currentAttempts) => ({
+        ...currentAttempts,
+        [roundId]: {
+          attemptAudioBlob,
+          error: null,
+          reversedAttemptBlob: null,
+        },
+      }));
+
+      try {
+        const reversedAttemptBlob = await getReversedAudioBlob({ blob: attemptAudioBlob });
+
+        setPendingAttemptsByRoundId((currentAttempts) => {
+          const currentAttempt = currentAttempts[roundId];
+
+          if (!currentAttempt || currentAttempt.attemptAudioBlob !== attemptAudioBlob) {
+            return currentAttempts;
+          }
+
+          return {
+            ...currentAttempts,
+            [roundId]: {
+              ...currentAttempt,
+              reversedAttemptBlob,
+            },
+          };
+        });
+      } catch (caughtError) {
+        setPendingAttemptsByRoundId((currentAttempts) => {
+          const currentAttempt = currentAttempts[roundId];
+
+          if (!currentAttempt || currentAttempt.attemptAudioBlob !== attemptAudioBlob) {
+            return currentAttempts;
+          }
+
+          return {
+            ...currentAttempts,
+            [roundId]: {
+              ...currentAttempt,
+              error: getChatAudioPreparationError(caughtError),
+            },
+          };
+        });
+      }
+    },
+    [],
+  );
 
   const renderTray = () => {
     if (!canRenderChat) {
@@ -1488,26 +1583,34 @@ export function ChatThreadPanel({
       );
     }
 
-    if (selectedActionRound.status === 'waiting_for_attempt') {
+    const pendingAttempt = pendingAttemptsByRoundId[selectedActionRound.id] ?? null;
+
+    if (selectedActionRound.status === 'waiting_for_attempt' && !pendingAttempt) {
       return (
         <ChatRecorderTray
-          currentUserId={currentUserId}
-          onRoundUpdated={handleRoundUpdated}
+          onAttemptReady={(attemptAudioBlob) =>
+            handlePendingAttemptReady(selectedActionRound.id, attemptAudioBlob)
+          }
           recorder={recorder}
-          round={selectedActionRound}
         />
       );
     }
 
     return (
-      <ChatGuessTray
-        currentUserId={currentUserId}
-        onRoundUpdated={handleRoundUpdated}
-        reversedAttemptBlob={
-          preparedAudioByRoundId[selectedActionRound.id]?.reversedAttemptBlob ?? null
-        }
-        round={selectedActionRound}
-      />
+      <>
+        <ChatGuessTray
+          attemptAudioBlob={pendingAttempt?.attemptAudioBlob ?? null}
+          currentUserId={currentUserId}
+          onRoundUpdated={handleRoundUpdated}
+          reversedAttemptBlob={
+            pendingAttempt?.reversedAttemptBlob ??
+            preparedAudioByRoundId[selectedActionRound.id]?.reversedAttemptBlob ??
+            null
+          }
+          round={selectedActionRound}
+        />
+        {pendingAttempt?.error ? <div className="error-banner">{pendingAttempt.error}</div> : null}
+      </>
     );
   };
   const firstRoundDate = rounds[0]?.createdAt ? formatThreadDate(rounds[0].createdAt) : '';

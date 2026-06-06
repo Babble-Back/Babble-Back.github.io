@@ -3235,6 +3235,13 @@ p {
   min-width: 0;
 }
 
+.chat-attempt-playback-pair {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .chat-bubble .chat-guess-playback-combo .audio-card {
   flex: 0 0 auto;
   min-height: 0;
