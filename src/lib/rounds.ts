@@ -5,6 +5,7 @@ import type { RoundGuessEvent } from '../features/rounds/types';
 import type { RoundListenState } from '../features/rounds/types';
 import type { RoundSummary } from '../features/rounds/types';
 import type { RoundStarCount } from '../features/rounds/types';
+import { maxChatPhraseLength, normalizeChatPhraseForStorage } from '../features/rounds/chatPhrase';
 import { scoreGuessByTrace } from '../features/rounds/utils';
 import { computeDifficulty, normalizePackText, type WordDifficulty } from '../utils/difficulty';
 import { sendAudioMessagePushNotification, sendClipSentPushNotification } from './push';
@@ -263,7 +264,7 @@ export const freeListenLimitByDifficulty: Record<WordDifficulty, number> = {
 
 export const extraListenCost = 5;
 export const maxRoundReactionLength = 500;
-export const maxChatPhraseLength = 80;
+export { maxChatPhraseLength };
 
 function requireSupabase() {
   if (!supabase) {
@@ -301,23 +302,6 @@ function isMissingRoundChatMetadataColumnError(message: string) {
   return /round_mode|chat_gave_up|chat_collapsed_at|chat_audio_expires_at|sender_viewed_results_at|recipient_viewed_results_at|sender_chat_read_at|recipient_chat_read_at/i.test(
     message,
   );
-}
-
-function normalizeChatPhrase(phrase: string) {
-  const normalizedPhrase = phrase
-    .trim()
-    .normalize('NFKC')
-    .replace(/\s+/g, ' ');
-
-  if (!normalizedPhrase) {
-    throw new Error('Type what you are going to say before recording.');
-  }
-
-  if (normalizedPhrase.length > maxChatPhraseLength) {
-    throw new Error(`Keep chat phrases to ${maxChatPhraseLength} characters or fewer.`);
-  }
-
-  return normalizedPhrase;
 }
 
 function isChatAudioExpired(row: RoundRow) {
@@ -930,7 +914,7 @@ export async function createChatRoundRecord(
 ): Promise<Round> {
   const client = requireSupabase();
   const roundId = makeRoundId();
-  const correctPhrase = normalizeChatPhrase(input.correctPhrase);
+  const correctPhrase = normalizeChatPhraseForStorage(input.correctPhrase);
   const difficulty = computeDifficulty(correctPhrase).difficulty;
   const sentAt = new Date().toISOString();
   const originalAudio = await uploadAudio(input.originalAudioBlob, {

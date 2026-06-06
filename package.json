@@ -9,6 +9,7 @@
     "build": "npm run update:sw-version && tsc -b && vite build",
     "generate:pack": "tsx scripts/generatePack.ts",
     "generate:campaign": "tsx scripts/generateCampaign.ts",
+    "check:chat-phrase": "tsx scripts/checkChatPhrasePunctuation.ts",
     "backfill:campaign-lm": "tsx scripts/backfillCampaignLmPriors.ts",
     "update:general-conversations-pack": "tsx scripts/updateGeneralConversationsPack.ts",
     "seed:easter-campaign": "tsx scripts/seedEasterCampaign.ts",
