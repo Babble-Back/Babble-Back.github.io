@@ -14,6 +14,7 @@ import { reverseAudioBlob } from '../../../audio/utils/reverseAudioBlob';
 import { AudioPlayerCard } from '../../../components/AudioPlayerCard';
 import { ToggleRecordButton } from '../../../components/ToggleRecordButton';
 import { WaveformLoader } from '../../../components/WaveformLoader';
+import { supabase } from '../../../lib/supabase';
 import {
   completeChatRound,
   createChatRoundRecord,
@@ -76,6 +77,8 @@ interface PendingChatAttempt {
 }
 
 const chatAudioRetentionMs = 24 * 60 * 60 * 1000;
+const chatLiveRefreshDebounceMs = 250;
+const chatLiveRefreshFallbackMs = 30000;
 
 const EMPTY_PREPARED_CHAT_AUDIO: PreparedChatRoundAudio = {
   reversedAttemptBlob: null,
@@ -352,6 +355,31 @@ function isCollapsedTranscript(round: Round) {
     round.status === 'complete' &&
       Number.isFinite(expiresAt) &&
       expiresAt <= Date.now(),
+  );
+}
+
+function isCurrentDocumentHidden() {
+  return typeof document !== 'undefined' && document.hidden;
+}
+
+function isRealtimeChatRoundForFriend(value: unknown, currentUserId: string, friendId: string) {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+
+  const row = value as {
+    recipient_id?: unknown;
+    round_mode?: unknown;
+    sender_id?: unknown;
+  };
+
+  if (row.round_mode !== 'chat') {
+    return false;
+  }
+
+  return (
+    (row.sender_id === currentUserId && row.recipient_id === friendId) ||
+    (row.sender_id === friendId && row.recipient_id === currentUserId)
   );
 }
 
@@ -1151,6 +1179,7 @@ export function ChatThreadPanel({
 }: ChatThreadPanelProps) {
   const recorder = useAudioRecorder({ preparedStreamIdleMs: 0 });
   const chatBodyRef = useRef<HTMLDivElement | null>(null);
+  const liveRefreshInFlightRef = useRef(false);
   const markingViewedKeyRef = useRef('');
   const roundRowRefs = useRef(new Map<string, HTMLElement>());
   const [rounds, setRounds] = useState<Round[]>([]);
@@ -1218,8 +1247,10 @@ export function ChatThreadPanel({
           friendId: friend.id,
         });
         setRounds(nextRounds);
+        return true;
       } catch (caughtError) {
         setError(caughtError instanceof Error ? caughtError.message : 'Unable to load chat.');
+        return false;
       } finally {
         if (!options?.silent) {
           setIsLoading(false);
@@ -1229,9 +1260,143 @@ export function ChatThreadPanel({
     [currentUserId, friend.id],
   );
 
+  const markOpenThreadRead = useCallback(
+    async (options?: { showError?: boolean }) => {
+      try {
+        await markChatThreadRead(friend.id);
+        void onThreadChanged?.();
+      } catch (caughtError) {
+        if (options?.showError) {
+          setError(
+            caughtError instanceof Error
+              ? caughtError.message
+              : 'Unable to mark this chat as read.',
+          );
+        } else {
+          console.warn('Unable to mark this chat as read.', caughtError);
+        }
+      }
+    },
+    [friend.id, onThreadChanged],
+  );
+
+  const refreshLiveThread = useCallback(async () => {
+    if (liveRefreshInFlightRef.current) {
+      return;
+    }
+
+    liveRefreshInFlightRef.current = true;
+
+    try {
+      const didLoad = await loadRounds({ silent: true });
+
+      if (didLoad && !isCurrentDocumentHidden()) {
+        await markOpenThreadRead();
+      }
+    } finally {
+      liveRefreshInFlightRef.current = false;
+    }
+  }, [loadRounds, markOpenThreadRead]);
+
   useEffect(() => {
     void loadRounds();
   }, [loadRounds]);
+
+  useEffect(() => {
+    const client = supabase;
+
+    if (!client) {
+      return;
+    }
+
+    let refreshTimer: number | null = null;
+    const scheduleRefresh = (payload: { new?: unknown; old?: unknown }) => {
+      const isRelevantRound =
+        isRealtimeChatRoundForFriend(payload.new, currentUserId, friend.id) ||
+        isRealtimeChatRoundForFriend(payload.old, currentUserId, friend.id);
+
+      if (!isRelevantRound) {
+        return;
+      }
+
+      if (refreshTimer !== null) {
+        window.clearTimeout(refreshTimer);
+      }
+
+      refreshTimer = window.setTimeout(() => {
+        refreshTimer = null;
+        void refreshLiveThread();
+      }, chatLiveRefreshDebounceMs);
+    };
+
+    const channel = client
+      .channel(`chat-rounds:${currentUserId}:${friend.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          filter: `sender_id=eq.${currentUserId}`,
+          schema: 'public',
+          table: 'rounds',
+        },
+        scheduleRefresh,
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          filter: `recipient_id=eq.${currentUserId}`,
+          schema: 'public',
+          table: 'rounds',
+        },
+        scheduleRefresh,
+      )
+      .subscribe((status) => {
+        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          console.warn('Chat live refresh subscription is not connected.', status);
+        }
+      });
+
+    return () => {
+      if (refreshTimer !== null) {
+        window.clearTimeout(refreshTimer);
+      }
+
+      void client.removeChannel(channel);
+    };
+  }, [currentUserId, friend.id, refreshLiveThread]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof document === 'undefined') {
+      return;
+    }
+
+    const refreshWhenVisible = () => {
+      if (!isCurrentDocumentHidden()) {
+        void refreshLiveThread();
+      }
+    };
+
+    document.addEventListener('visibilitychange', refreshWhenVisible);
+    window.addEventListener('focus', refreshWhenVisible);
+
+    return () => {
+      document.removeEventListener('visibilitychange', refreshWhenVisible);
+      window.removeEventListener('focus', refreshWhenVisible);
+    };
+  }, [refreshLiveThread]);
+
+  useEffect(() => {
+    const refreshInterval = window.setInterval(() => {
+      if (!isCurrentDocumentHidden()) {
+        void refreshLiveThread();
+      }
+    }, chatLiveRefreshFallbackMs);
+
+    return () => {
+      window.clearInterval(refreshInterval);
+    };
+  }, [refreshLiveThread]);
 
   useEffect(() => {
     if (isLoading) {
@@ -1310,20 +1475,8 @@ export function ChatThreadPanel({
     let cancelled = false;
 
     const markThreadRead = async () => {
-      try {
-        await markChatThreadRead(friend.id);
-
-        if (!cancelled) {
-          void onThreadChanged?.();
-        }
-      } catch (caughtError) {
-        if (!cancelled) {
-          setError(
-            caughtError instanceof Error
-              ? caughtError.message
-              : 'Unable to mark this chat as read.',
-          );
-        }
+      if (!cancelled) {
+        await markOpenThreadRead({ showError: true });
       }
     };
 
@@ -1332,7 +1485,7 @@ export function ChatThreadPanel({
     return () => {
       cancelled = true;
     };
-  }, [friend.id, onThreadChanged]);
+  }, [markOpenThreadRead]);
 
   useEffect(() => {
     recorder.clearRecording();
